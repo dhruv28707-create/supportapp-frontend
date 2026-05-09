@@ -1,0 +1,93 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isGodAccount() {
+      return signedIn()
+        && request.auth.token.email in [
+          'piyush28707@gmail.com',
+          'prachibhatt1972007@gmail.com'
+        ];
+    }
+
+    function isValidUserTier() {
+      return request.resource.data.tier in ['free', 'pro', 'ultimate', 'developer'];
+    }
+
+    function isValidUserRole() {
+      return !('role' in request.resource.data)
+        || request.resource.data.role in ['user', 'developer', 'owner'];
+    }
+
+    function normalUserCannotSelfPromote() {
+      return request.resource.data.tier in ['free', 'pro', 'ultimate']
+        && request.resource.data.role != 'developer'
+        && request.resource.data.role != 'owner'
+        && request.resource.data.isDeveloper != true;
+    }
+
+    function normalUserKeepsProtectedFields() {
+      return request.resource.data.tier == resource.data.tier
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.isDeveloper == resource.data.isDeveloper
+        && request.resource.data.premium == resource.data.premium;
+    }
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isGodAccount();
+
+      allow create: if isGodAccount()
+        || (
+          isOwner(uid)
+          && isValidUserTier()
+          && isValidUserRole()
+          && normalUserCannotSelfPromote()
+          && request.resource.data.tier == 'free'
+        );
+
+      allow update: if isGodAccount()
+        || (
+          isOwner(uid)
+          && isValidUserTier()
+          && isValidUserRole()
+          && normalUserCannotSelfPromote()
+          && normalUserKeepsProtectedFields()
+        );
+
+      allow delete: if isGodAccount();
+
+      match /chatHistory/{chatId}/messages/{messageId} {
+        allow read, write: if isOwner(uid) || isGodAccount();
+      }
+
+      match /conversations/{conversationId} {
+        allow read, write: if isOwner(uid) || isGodAccount();
+
+        match /messages/{messageId} {
+          allow read, write: if isOwner(uid) || isGodAccount();
+        }
+      }
+    }
+
+    match /sessions/{uid} {
+      allow read, write: if isOwner(uid) || isGodAccount();
+    }
+
+    match /payments/{orderId} {
+      allow read: if signedIn();
+      allow write: if isGodAccount();
+    }
+
+    match /{document=**} {
+      allow read, write: if isGodAccount();
+    }
+  }
+}

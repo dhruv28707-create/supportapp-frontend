@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1076175086950",
+    "project_id": "emotional-support-app-6cb9b",
+    "storage_bucket": "emotional-support-app-6cb9b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1076175086950:android:e2b0050baee765651a54a7",
+        "android_client_info": {
+          "package_name": "com.supportapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAUjwww8NmuCQUFeXrT-Fu26NkF0AO6RWs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

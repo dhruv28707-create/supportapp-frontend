@@ -1,0 +1,18 @@
+{
+  "rules": {
+    ".read": "auth != null && (auth.token.email == 'piyush28707@gmail.com' || auth.token.email == 'developer2@safespace.local')",
+    ".write": "auth != null && (auth.token.email == 'prachibhatt1972007@gmail.com' || auth.token.email == 'developer2@safespace.local')",
+    "users": {
+      "$uid": {
+        ".read": "auth != null && ($uid === auth.uid || auth.token.email == 'developer1@safespace.local' || auth.token.email == 'developer2@safespace.local')",
+        ".write": "auth != null && ($uid === auth.uid || auth.token.email == 'developer1@safespace.local' || auth.token.email == 'developer2@safespace.local')",
+        "role": {
+          ".validate": "newData.val() !== 'developer' || (auth != null && (auth.token.email == 'developer1@safespace.local' || auth.token.email == 'developer2@safespace.local'))"
+        },
+        "isDeveloper": {
+          ".validate": "newData.val() !== true || (auth != null && (auth.token.email == 'developer1@safespace.local' || auth.token.email == 'developer2@safespace.local'))"
+        }
+      }
+    }
+  }
+}
