@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -10,12 +10,12 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import auth from "@react-native-firebase/auth";
-import firestore from "@react-native-firebase/firestore";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
-import { DEVELOPER_TIER } from "../config/developerAccounts";
+import { TIER_UNLOCKS, PlanKey } from "../constants";
+import { useCountdown, formatRefreshIn } from "../hooks/useCountdown";
+import { colors } from "../theme";
 
 type LobbyNavProp = NativeStackNavigationProp<RootStackParamList, "Lobby">;
 
@@ -61,7 +61,7 @@ const PERSONALITY_COLORS: Record<string, {
     labelColor: "#7A2200",
     selectedLabelColor: "#5C1A00",
   },
-  BestFriend: {
+  "Best Friend": {
     bg: "#FFF3EC",
     border: "#FFAB8F",
     selectedBg: "#FFDAB9",
@@ -82,21 +82,14 @@ const PERSONALITY_COLORS: Record<string, {
     labelColor: "#4A007A",
     selectedLabelColor: "#2A0050",
   },
-  Custom: {
-    bg: "#FFFBF0",
-    border: "#E8A84A",
-    selectedBg: "#FFF3D0",
-    labelColor: "#5C3A00",
-    selectedLabelColor: "#3D2000",
-  },
-  BF: {
+  Boyfriend: {
     bg: "#E8F4FF",
     border: "#5B9BD5",
     selectedBg: "#C9E2F7",
     labelColor: "#003366",
     selectedLabelColor: "#002244",
   },
-  GF: {
+  Girlfriend: {
     bg: "#FFE8F4",
     border: "#E91E8C",
     selectedBg: "#FFC5E5",
@@ -116,6 +109,13 @@ const PERSONALITY_COLORS: Record<string, {
     selectedBg: "#F8B8D0",
     labelColor: "#880E4F",
     selectedLabelColor: "#6A0033",
+  },
+  Custom: {
+    bg: "#F5F0F0",
+    border: colors.primary,
+    selectedBg: "#F0E0D0",
+    labelColor: colors.text,
+    selectedLabelColor: colors.primaryDarker,
   }
 };
 
@@ -125,56 +125,52 @@ const RELIGION_COLORS: Record<string, {
   activeBg: string;
   labelColor: string;
 }> = {
-  Hindu:     { bg: "#FFF0F0", border: "#FF9999", activeBg: "#FFD6D6", labelColor: "#5C0000" },
-  Muslim:    { bg: "#E8F5E9", border: "#66BB6A", activeBg: "#C8E6C9", labelColor: "#003300" },
-  Christian: { bg: "#F3E5F5", border: "#CE93D8", activeBg: "#E1BEE7", labelColor: "#2A005C" },
-  Sikh:      { bg: "#FFF3E0", border: "#FFB74D", activeBg: "#FFE0B2", labelColor: "#4A2000" },
-  Jain:      { bg: "#FAFAFA", border: "#BDBDBD", activeBg: "#F5F5F5", labelColor: "#333333" },
-  Buddhist:  { bg: "#EFEBE9", border: "#A1887F", activeBg: "#D7CCC8", labelColor: "#3E1E10" },
-  General:   { bg: "#E8F4FD", border: "#64B5F6", activeBg: "#BBDEFB", labelColor: "#003366" },
-};
-
-// ── Tier unlock map ───────────────────────────────────────────────────────────
-const TIER_UNLOCKS: Record<string, string[]> = {
-  free:     ["Father", "Mother", "Brother", "Sister"],
-  pro:      ["Father", "Mother", "Brother", "Sister", "Friend", "BestFriend", "Mentor", "Guide"],
-  ultimate: ["Father", "Mother", "Brother", "Sister", "Friend", "BestFriend", "Mentor", "Guide", "BF", "GF", "Husband", "Wife"],
-  [DEVELOPER_TIER]: ["Father", "Mother", "Brother", "Sister", "Friend", "BestFriend", "Mentor", "Guide", "BF", "GF", "Husband", "Wife"],
+  islamic:   { bg: "#E8F5E9", border: "#66BB6A", activeBg: "#C8E6C9", labelColor: "#003300" },
+  hindu:     { bg: "#FFF0F0", border: "#FF9999", activeBg: "#FFD6D6", labelColor: "#5C0000" },
+  christian: { bg: "#F3E5F5", border: "#CE93D8", activeBg: "#E1BEE7", labelColor: "#2A005C" },
+  buddhist:  { bg: "#EFEBE9", border: "#A1887F", activeBg: "#D7CCC8", labelColor: "#3E1E10" },
+  jewish:    { bg: "#E8F4FD", border: "#64B5F6", activeBg: "#BBDEFB", labelColor: "#003366" },
+  spiritual: { bg: "#FFFDE7", border: "#C8B560", activeBg: "#FFF176", labelColor: "#5C5000" },
+  secular:   { bg: "#FAFAFA", border: "#BDBDBD", activeBg: "#F5F5F5", labelColor: "#333333" },
 };
 
 const personalities = [
-  { id: "Father",     emoji: "👨", label: "Father"      },
-  { id: "Mother",     emoji: "👩", label: "Mother"      },
-  { id: "Brother",    emoji: "👦", label: "Brother"     },
-  { id: "Sister",     emoji: "👧", label: "Sister"      },
-  { id: "Friend",     emoji: "🤝", label: "Friend"      },
-  { id: "BestFriend", emoji: "💯", label: "Best Friend" },
-  { id: "Mentor",     emoji: "🎓", label: "Mentor"      },
-  { id: "Guide",      emoji: "🙏", label: "Guide"       },
-  { id: "BF",         emoji: "💙", label: "Boyfriend"   },
-  { id: "GF",         emoji: "🩷", label: "Girlfriend"  },
-  { id: "Husband",    emoji: "💍", label: "Husband"     },
-  { id: "Wife",       emoji: "👰", label: "Wife"        },
+  { id: "Father",      emoji: "👨", label: "Father"      },
+  { id: "Mother",      emoji: "👩", label: "Mother"      },
+  { id: "Brother",     emoji: "👦", label: "Brother"     },
+  { id: "Sister",      emoji: "👧", label: "Sister"      },
+  { id: "Friend",      emoji: "🤝", label: "Friend"      },
+  { id: "Best Friend", emoji: "💯", label: "Best Friend" },
+  { id: "Mentor",      emoji: "🎓", label: "Mentor"      },
+  { id: "Guide",       emoji: "🙏", label: "Guide"       },
+  { id: "Husband",     emoji: "💍", label: "Husband"     },
+  { id: "Wife",        emoji: "👰", label: "Wife"        },
+  { id: "Boyfriend",   emoji: "💙", label: "Boyfriend"   },
+  { id: "Girlfriend",  emoji: "🩷", label: "Girlfriend"  },
 ];
 
 const religions = [
-  { id: "Hindu",     label: "Hindu",     emoji: "🕉️" },
-  { id: "Muslim",    label: "Muslim",    emoji: "☪️" },
-  { id: "Christian", label: "Christian", emoji: "✝️" },
-  { id: "Sikh",      label: "Sikh",      emoji: "🪯" },
-  { id: "Jain",      label: "Jain",      emoji: "🙏" },
-  { id: "Buddhist",  label: "Buddhist",  emoji: "☸️" },
-  { id: "General",   label: "General",   emoji: "🌟" },
+  { id: "spiritual", label: "Spiritual", emoji: "✨" },
+  { id: "secular",   label: "Secular",   emoji: "🌿" },
+  { id: "islamic",   label: "Islamic",   emoji: "☪️" },
+  { id: "hindu",     label: "Hindu",     emoji: "🕉️" },
+  { id: "christian", label: "Christian", emoji: "✝️" },
+  { id: "buddhist",  label: "Buddhist",  emoji: "☸️" },
+  { id: "jewish",    label: "Jewish",    emoji: "✡️" },
 ];
 
 export default function LobbyScreen() {
   const navigation = useNavigation<LobbyNavProp>();
-  const { tier } = useToken();
+  const { plan, messagesRemaining, nextRefreshAt } = useToken();
+  const isUltimate = plan === 'ultimate';
   const [selected, setSelected] = useState("Father");
   const [showReligionModal, setShowReligionModal] = useState(false);
-  const [selectedReligion, setSelectedReligion] = useState("General");
+  const [selectedReligion, setSelectedReligion] = useState("spiritual");
 
-  const unlockedPersonalities = TIER_UNLOCKS[tier] ?? TIER_UNLOCKS.free;
+  const secondsLeft = useCountdown(nextRefreshAt);
+
+  const planKey: PlanKey = (plan === 'pro' || plan === 'ultimate') ? plan : 'free';
+  const unlockedPersonalities = TIER_UNLOCKS[planKey] ?? TIER_UNLOCKS.free;
 
   const handlePersonalitySelect = (id: string) => {
     if (!unlockedPersonalities.includes(id)) {
@@ -184,7 +180,6 @@ export default function LobbyScreen() {
         [
           { text: "Maybe Later", style: "cancel" },
           { text: "Upgrade ✨", onPress: ()=> navigation.navigate("Paywall") },
-          // { text: "Upgrade", onPress: () => navigation.navigate("Paywall") },
         ]
       );
       return;
@@ -195,11 +190,17 @@ export default function LobbyScreen() {
     }
   };
 
+  const getReligionLabel = (id: string) => {
+    const r = religions.find((item) => item.id === id);
+    return r ? r.label : id;
+  };
+
   const handleChat = () => {
-    const finalPersonality = selected === "Guide"
-      ? `Guide_${selectedReligion}`
-      : selected;
-    navigation.navigate("chat", { personality: finalPersonality });
+    if (selected === "Guide") {
+      navigation.navigate("chat", { personality: "Guide", religionSubType: selectedReligion });
+    } else {
+      navigation.navigate("chat", { personality: selected });
+    }
   };
 
   const getCardColors = (id: string, isSelected: boolean) => {
@@ -217,14 +218,40 @@ export default function LobbyScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>SafeSpace</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerTitle}>SafeSpace</Text>
         <Text style={styles.headerSub}>You are not alone 🌿</Text>
       </View>
 
-      {/* Content */}
+        <TouchableOpacity
+          style={styles.settingsBtn}
+          onPress={() => navigation.navigate("Settings")}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Open settings"
+        >
+          <Text style={styles.settingsIcon}>⚙</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.content}>
+        <TouchableOpacity
+          style={styles.quotaBar}
+          onPress={() => navigation.navigate("Paywall")}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.quotaText}>
+            💬 {messagesRemaining} {messagesRemaining === 1 ? "message" : "messages"} left
+          </Text>
+          {nextRefreshAt && (
+            <Text style={styles.quotaRefresh}>
+              refills in {formatRefreshIn(secondsLeft)}
+            </Text>
+          )}
+          {!isUltimate && <Text style={styles.quotaUpgrade}>Upgrade →</Text>}
+        </TouchableOpacity>
+
         <Text style={styles.sectionTitle}>Choose Your Companion</Text>
         <Text style={styles.sectionSub}>Who do you want to talk to today?</Text>
 
@@ -238,17 +265,16 @@ export default function LobbyScreen() {
             const isLocked = !unlockedPersonalities.includes(p.id);
             const colors = getCardColors(p.id, isSelected);
 
+            const cardColors = { backgroundColor: colors.bg, borderColor: colors.border };
+
             return (
               <TouchableOpacity
                 key={p.id}
                 style={[
                   styles.card,
-                  {
-                    backgroundColor: colors.bg,
-                    borderColor: colors.border,
-                    borderWidth: isSelected ? 2 : 1.5,
-                    opacity: isLocked ? 0.5 : 1,
-                  },
+                  cardColors,
+                  isSelected && styles.cardSelected,
+                  isLocked && styles.cardLocked,
                 ]}
                 onPress={() => handlePersonalitySelect(p.id)}
                 activeOpacity={0.8}
@@ -264,7 +290,7 @@ export default function LobbyScreen() {
                 </Text>
                 {isSelected && p.id === "Guide" && (
                   <Text style={[styles.religionTag, { color: RELIGION_COLORS[selectedReligion]?.border ?? "#9575CD" }]}>
-                    {selectedReligion}
+                    {getReligionLabel(selectedReligion)}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -273,17 +299,15 @@ export default function LobbyScreen() {
         </ScrollView>
       </View>
 
-      {/* Start Chat Button */}
       <View style={styles.footer}>
         <TouchableOpacity style={styles.startButton} onPress={handleChat} activeOpacity={0.85}>
           <Text style={styles.startButtonText}>
-            Start Chat {selected === "Guide" ? `· ${selectedReligion}` : ""}
+            Start Chat {selected === "Guide" ? `· ${getReligionLabel(selectedReligion)}` : ""}
           </Text>
           <Text style={styles.startArrow}>→</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Religion Modal */}
       <Modal
         visible={showReligionModal}
         transparent
@@ -297,21 +321,20 @@ export default function LobbyScreen() {
               Your Guide will speak with wisdom from your tradition
             </Text>
 
-            <ScrollView style={{ width: "100%" }}>
+            <ScrollView style={styles.modalScroll}>
               {religions.map((r) => {
                 const isActive = selectedReligion === r.id;
                 const rc = RELIGION_COLORS[r.id] ?? RELIGION_COLORS.General;
+                const rowStyle = {
+                  backgroundColor: isActive ? rc.activeBg : rc.bg,
+                  borderWidth: isActive ? 1.5 : 0.5,
+                  borderColor: isActive ? rc.border : "#E0D0C0",
+                };
+                const labelStyle = { color: isActive ? rc.labelColor : colors.text };
                 return (
                   <TouchableOpacity
                     key={r.id}
-                    style={[
-                      styles.religionRow,
-                      {
-                        backgroundColor: isActive ? rc.activeBg : rc.bg,
-                        borderWidth: isActive ? 1.5 : 0.5,
-                        borderColor: isActive ? rc.border : "#E0D0C0",
-                      },
-                    ]}
+                    style={[styles.religionRow, rowStyle]}
                     onPress={() => {
                       setSelectedReligion(r.id);
                       setShowReligionModal(false);
@@ -321,7 +344,7 @@ export default function LobbyScreen() {
                     <Text style={styles.religionEmoji}>{r.emoji}</Text>
                     <Text style={[
                       styles.religionLabel,
-                      { color: isActive ? rc.labelColor : "#3D2000" },
+                      labelStyle,
                       isActive && styles.religionLabelActive,
                     ]}>
                       {r.label}
@@ -348,37 +371,67 @@ export default function LobbyScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#C8702A" },
+  safe: { flex: 1, backgroundColor: colors.primary },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 24,
     paddingTop: 8,
     paddingBottom: 16,
-    backgroundColor: "#C8702A",
+    backgroundColor: colors.primary,
   },
+  headerCopy: { flex: 1 },
   headerTitle: {
     fontSize: 26,
     fontWeight: "800",
-    color: "#FFF8F0",
+    color: colors.onPrimary,
     letterSpacing: 0.5,
   },
-  headerSub: { fontSize: 13, color: "#F5D9B8", marginTop: 2 },
+  headerSub: { fontSize: 13, color: colors.onPrimaryMuted, marginTop: 2 },
+  settingsBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 12,
+  },
+  settingsIcon: { color: colors.onPrimary, fontSize: 22, fontWeight: "700" },
   content: {
     flex: 1,
-    backgroundColor: "#FDF6EC",
+    backgroundColor: colors.background,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingTop: 24,
     paddingHorizontal: 20,
   },
+  quotaBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.onPrimary,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 16,
+    gap: 8,
+  },
+  quotaText: { fontSize: 13, fontWeight: "600", color: colors.text },
+  quotaRefresh: { fontSize: 12, color: colors.textMuted, flex: 1 },
+  quotaUpgrade: { fontSize: 12, fontWeight: "700", color: colors.primary },
+
   sectionTitle: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#3D2000",
+    color: colors.text,
     textAlign: "center",
   },
   sectionSub: {
     fontSize: 13,
-    color: "#B0937A",
+    color: colors.textMuted,
     textAlign: "center",
     marginTop: 4,
     marginBottom: 20,
@@ -391,6 +444,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: "47%",
+    borderWidth: 1.5,
     borderRadius: 20,
     paddingVertical: 20,
     paddingHorizontal: 12,
@@ -403,6 +457,8 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   cardEmoji: { fontSize: 36, marginBottom: 8 },
+  cardSelected: { borderWidth: 2 },
+  cardLocked: { opacity: 0.5 },
   cardLabel: { fontSize: 15, fontWeight: "600" },
   religionTag: { fontSize: 11, marginTop: 4, fontWeight: "500" },
   proBadge: {
@@ -420,15 +476,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#FDF6EC",
+    backgroundColor: colors.background,
     paddingHorizontal: 24,
     paddingTop: 12,
     paddingBottom: 50,
     borderTopWidth: 1,
-    borderTopColor: "#F0DCC8",
+    borderTopColor: colors.border,
   },
   startButton: {
-    backgroundColor: "#C8702A",
+    backgroundColor: colors.primary,
     borderRadius: 16,
     paddingVertical: 16,
     flexDirection: "row",
@@ -438,27 +494,28 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   startButtonText: {
-    color: "#FFF8F0",
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: "700",
     letterSpacing: 0.3,
   },
-  startArrow: { color: "#FFF8F0", fontSize: 18, fontWeight: "700" },
+  startArrow: { color: colors.onPrimary, fontSize: 18, fontWeight: "700" },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
-  modalBox: {
-    backgroundColor: "#FDF6EC",
+  modalBox: {  
+    backgroundColor: colors.background,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 24,
+    padding: 24,   
     alignItems: "center",
     maxHeight: "80%",
   },
-  modalTitle: { fontSize: 20, fontWeight: "700", color: "#3D2000", marginBottom: 4 },
-  modalSub: { fontSize: 13, color: "#B0937A", textAlign: "center", marginBottom: 20 },
+  modalScroll: { width: "100%" },
+  modalTitle: { fontSize: 20, fontWeight: "700", color: colors.text, marginBottom: 4 },
+  modalSub: { fontSize: 13, color: colors.textMuted, textAlign: "center", marginBottom: 20 },
   religionRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -472,5 +529,5 @@ const styles = StyleSheet.create({
   religionLabelActive: { fontWeight: "700" },
   checkmark: { fontSize: 16, fontWeight: "700" },
   modalCancel: { marginTop: 8, padding: 14, width: "100%", alignItems: "center" },
-  modalCancelText: { color: "#E05C2A", fontSize: 15, fontWeight: "600" },
+  modalCancelText: { color: colors.primaryDark, fontSize: 15, fontWeight: "600" },
 });

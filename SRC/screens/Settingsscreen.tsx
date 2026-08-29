@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   Alert,
   ScrollView,
@@ -8,26 +8,34 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import { useToken } from "../context/TokenContext";
+import { PLAN_COLORS, PLANS, PlanKey, APP_VERSION } from "../constants";
+import { useCountdown, formatRefreshIn } from "../hooks/useCountdown";
+import { colors } from "../theme";
 
 type SettingsNavProp = NativeStackNavigationProp<RootStackParamList>;
 
-const PLAN_COLORS: Record<string, { bg: string; text: string; border: string; emoji: string }> = {
-  free:      { bg: "#F0DCC8", text: "#7A4A1A", border: "#C8702A", emoji: "🌱" },
-  pro:       { bg: "#FFF3E0", text: "#E65100", border: "#FF9800", emoji: "⚡" },
-  ultimate:  { bg: "#FDF6EC", text: "#C8702A", border: "#C8702A", emoji: "👑" },
-  developer: { bg: "#E8F5E9", text: "#1B5E20", border: "#4CAF50", emoji: "🛠️" },
-};
-
 export default function SettingsScreen() {
   const navigation = useNavigation<SettingsNavProp>();
-  const { tier } = useToken();
+  const { plan, messagesRemaining, nextRefreshAt, expiresAt, refreshPlan } = useToken();
   const [userProfile, setUserProfile] = useState<any>(null);
+  const currentUser = auth().currentUser;
+  const isLoggedIn = Boolean(currentUser);
+
+  const secondsLeft = useCountdown(nextRefreshAt);
+
+  // Refetch the plan whenever this screen gains focus (e.g. returning from
+  // the paywall after a purchase).
+  useFocusEffect(
+    useCallback(() => {
+      refreshPlan();
+    }, [refreshPlan])
+  );
 
   useEffect(() => {
     const uid = auth().currentUser?.uid;
@@ -62,84 +70,84 @@ export default function SettingsScreen() {
     );
   };
 
-  const planStyle = PLAN_COLORS[tier] ?? PLAN_COLORS.free;
+  const planKey: PlanKey = (plan === 'pro' || plan === 'ultimate') ? plan : 'free';
+  const planStyle = PLAN_COLORS[planKey] ?? PLAN_COLORS.free;
+  const planInfo = PLANS[planKey];
   const fullName = userProfile
     ? `${userProfile.firstName ?? ""} ${userProfile.lastName ?? ""}`.trim()
     : "Loading...";
-  const email = auth().currentUser?.email ?? "";
+  const email = currentUser?.email ?? "";
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 36 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-        {/* Profile Card */}
+        {isLoggedIn && (
         <View style={styles.profileCard}>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>
               {userProfile?.firstName?.[0]?.toUpperCase() ?? "?"}
             </Text>
           </View>
-          <View style={styles.profileInfo}>
+          <View style={styles.profileInfoWrap}>
             <Text style={styles.profileName}>{fullName}</Text>
             <Text style={styles.profileEmail}>{email}</Text>
-            {userProfile?.language && (
-              <Text style={styles.profileLang}>🌐 {userProfile.language}</Text>
-            )}
           </View>
         </View>
+        )}
 
-        {/* Plan Card */}
+        {isLoggedIn && (
+          <>
         <View style={styles.sectionLabel}>
           <Text style={styles.sectionLabelText}>SUBSCRIPTION</Text>
         </View>
         <View style={[styles.planCard, { borderColor: planStyle.border, backgroundColor: planStyle.bg }]}>
           <View style={styles.planRow}>
-            <Text style={styles.planEmoji}>{planStyle.emoji}</Text>
-            <View style={{ flex: 1 }}>
+            <View style={styles.planInfoWrap}>
               <Text style={[styles.planName, { color: planStyle.text }]}>
-                {tier.charAt(0).toUpperCase() + tier.slice(1)} Plan
+                {planInfo.name} Plan
               </Text>
               <Text style={styles.planSub}>
-                {tier === "free"
-                  ? "Limited messages per day"
-                  : tier === "pro"
-                  ? "100 messages per day · 8 personalities"
-                  : tier === "ultimate"
-                  ? "300 messages per day · All personalities"
-                  : "Full developer access"}
+                {messagesRemaining} {messagesRemaining === 1 ? "message" : "messages"} left
+                {nextRefreshAt ? ` · refills in ${formatRefreshIn(secondsLeft)}` : ""}
               </Text>
+              {expiresAt && planKey !== 'free' && (
+                <Text style={styles.planExpires}>
+                  Renews on {new Date(expiresAt).toLocaleDateString()}
+                </Text>
+              )}
             </View>
-            {tier === "free" && (
+            {planKey === 'free' && (
               <TouchableOpacity
                 style={styles.upgradeBtn}
                 onPress={() => navigation.navigate("Paywall")}
                 activeOpacity={0.85}
               >
-                <Text style={styles.upgradeBtnText}>Upgrade ✨</Text>
+                <Text style={styles.upgradeBtnText}>Upgrade</Text>
               </TouchableOpacity>
             )}
           </View>
         </View>
+          </>
+        )}
 
-        {/* Policies */}
         <View style={styles.sectionLabel}>
           <Text style={styles.sectionLabelText}>LEGAL</Text>
         </View>
         <View style={styles.menuCard}>
           {[
-            { label: "Terms & Conditions", tab: "terms", icon: "📋" },
-            { label: "Privacy Policy",     tab: "privacy", icon: "🔒" },
-            { label: "Payment Policy",     tab: "payment", icon: "💳" },
-            { label: "Refund Policy",      tab: "refund",  icon: "↩️" },
+            { label: "Terms & Conditions", tab: "terms" },
+            { label: "Privacy Policy",     tab: "privacy" },
+            { label: "Payment Policy",     tab: "payment" },
+            { label: "Refund Policy",      tab: "refund" },
           ].map((item, i, arr) => (
             <TouchableOpacity
               key={item.tab}
@@ -147,37 +155,35 @@ export default function SettingsScreen() {
               onPress={() => navigation.navigate("Policy", { tab: item.tab })}
               activeOpacity={0.8}
             >
-              <Text style={styles.menuIcon}>{item.icon}</Text>
               <Text style={styles.menuLabel}>{item.label}</Text>
               <Text style={styles.menuArrow}>›</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Support */}
         <View style={styles.sectionLabel}>
           <Text style={styles.sectionLabelText}>SUPPORT</Text>
         </View>
         <View style={styles.menuCard}>
           <View style={styles.menuRow}>
-            <Text style={styles.menuIcon}>📧</Text>
             <Text style={styles.menuLabel}>emotionalsupapp1912@gmail.com</Text>
           </View>
         </View>
 
-        {/* Logout */}
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
-          <Text style={styles.logoutText}>Log Out</Text>
-        </TouchableOpacity>
+        {isLoggedIn && (
+          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
+            <Text style={styles.logoutText}>Log Out</Text>
+          </TouchableOpacity>
+        )}
 
-        <Text style={styles.version}>SafeSpace · v1.0.0</Text>
+        <Text style={styles.version}>SafeSpace · v{APP_VERSION}</Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#C8702A" },
+  safe: { flex: 1, backgroundColor: colors.primary },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -185,63 +191,63 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
-    backgroundColor: "#C8702A",
+    backgroundColor: colors.primary,
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: "rgba(255,255,255,0.2)",
     justifyContent: "center", alignItems: "center",
   },
-  backIcon: { color: "#FFF8F0", fontSize: 18, fontWeight: "700" },
-  headerTitle: { fontSize: 20, fontWeight: "700", color: "#FFF8F0" },
+  backIcon: { color: colors.onPrimary, fontSize: 18, fontWeight: "700" },
+  headerSpacer: { width: 36 },
+  headerTitle: { fontSize: 20, fontWeight: "700", color: colors.onPrimary },
 
-  scroll: { flex: 1, backgroundColor: "#FDF6EC" },
+  scroll: { flex: 1, backgroundColor: colors.background },
   scrollContent: { padding: 20, paddingBottom: 48 },
 
   profileCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFF8F0",
+    backgroundColor: colors.onPrimary,
     borderRadius: 20,
     padding: 20,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: "#F0DCC8",
+    borderColor: colors.border,
     gap: 16,
   },
   avatarCircle: {
     width: 60, height: 60, borderRadius: 30,
-    backgroundColor: "#C8702A",
+    backgroundColor: colors.primary,
     justifyContent: "center", alignItems: "center",
   },
-  avatarText: { fontSize: 26, fontWeight: "700", color: "#FFF8F0" },
-  profileInfo: { flex: 1 },
-  profileName: { fontSize: 18, fontWeight: "700", color: "#3D2000" },
-  profileEmail: { fontSize: 13, color: "#B0937A", marginTop: 2 },
-  profileLang: { fontSize: 12, color: "#C8702A", marginTop: 4, fontWeight: "600" },
-
+  avatarText: { fontSize: 26, fontWeight: "700", color: colors.onPrimary },
+  profileInfoWrap: { flex: 1 },
+  profileName: { fontSize: 18, fontWeight: "700", color: colors.text },
+  profileEmail: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
   sectionLabel: { marginBottom: 8, marginTop: 4 },
-  sectionLabelText: { fontSize: 11, fontWeight: "700", color: "#B0937A", letterSpacing: 1 },
+  sectionLabelText: { fontSize: 11, fontWeight: "700", color: colors.textMuted, letterSpacing: 1 },
 
   planCard: {
     borderRadius: 16, borderWidth: 1.5,
     padding: 16, marginBottom: 24,
   },
   planRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  planEmoji: { fontSize: 28 },
+  planInfoWrap: { flex: 1 },
   planName: { fontSize: 16, fontWeight: "700" },
-  planSub: { fontSize: 12, color: "#9E7C63", marginTop: 2 },
+  planSub: { fontSize: 12, color: colors.textSubtle, marginTop: 2 },
+  planExpires: { fontSize: 12, color: colors.textSubtle, marginTop: 2, fontWeight: "600" },
   upgradeBtn: {
-    backgroundColor: "#C8702A",
+    backgroundColor: colors.primary,
     borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
   },
-  upgradeBtnText: { color: "#FFF8F0", fontSize: 12, fontWeight: "700" },
+  upgradeBtnText: { color: colors.onPrimary, fontSize: 12, fontWeight: "700" },
 
   menuCard: {
-    backgroundColor: "#FFF8F0",
+    backgroundColor: colors.onPrimary,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#F0DCC8",
+    borderColor: colors.border,
     marginBottom: 24,
     overflow: "hidden",
   },
@@ -252,20 +258,19 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     gap: 12,
   },
-  menuRowBorder: { borderBottomWidth: 1, borderBottomColor: "#F0DCC8" },
-  menuIcon: { fontSize: 18 },
-  menuLabel: { flex: 1, fontSize: 15, color: "#3D2000", fontWeight: "500" },
-  menuArrow: { fontSize: 20, color: "#C8702A", fontWeight: "700" },
+  menuRowBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
+  menuLabel: { flex: 1, fontSize: 15, color: colors.text, fontWeight: "500" },
+  menuArrow: { fontSize: 20, color: colors.primary, fontWeight: "700" },
 
   logoutBtn: {
-    backgroundColor: "#FFF0F0",
+    backgroundColor: colors.dangerBg,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: "center",
     borderWidth: 1.5,
-    borderColor: "#FFCDD2",
+    borderColor: colors.dangerBorder,
     marginBottom: 16,
   },
-  logoutText: { color: "#D32F2F", fontSize: 16, fontWeight: "700" },
-  version: { textAlign: "center", fontSize: 12, color: "#C0A080" },
+  logoutText: { color: colors.danger, fontSize: 16, fontWeight: "700" },
+  version: { textAlign: "center", fontSize: 12, color: colors.textFaint },
 });

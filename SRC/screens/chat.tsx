@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   FlatList,
   Keyboard,
@@ -11,16 +11,17 @@ import {
   Linking,
   Alert,
 } from "react-native";
-import { useRoute, useNavigation } from "@react-navigation/native";
+import { useRoute, useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { SafeAreaView } from "react-native-safe-area-context";
 import firestore from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
 import { useToken } from "../context/TokenContext";
-import { DEVELOPER_TIER } from "../config/developerAccounts";
-
-const BACKEND_URL = "https://supportapp-backend.vercel.app";
+import { CRISIS_HELPLINES } from "../constants";
+import { apiFetch } from "../api/client";
+import { useCountdown, formatCountdown, formatRefreshIn } from "../hooks/useCountdown";
+import { colors } from "../theme";
 
 type ChatNavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -96,7 +97,7 @@ const PERSONALITY_THEME: Record<string, {
     sendBtn: "#E2703A",
     typingColor: "#B54A1A",
   },
-  BestFriend: {
+  "Best Friend": {
     headerBg: "#FFAB8F",
     headerText: "#5C2200",
     headerSub: "#FFF3EC",
@@ -120,19 +121,19 @@ const PERSONALITY_THEME: Record<string, {
     sendBtn: "#A08F20",
     typingColor: "#7A6A10",
   },
-  Guide_Hindu: {
-    headerBg: "#FF9999",
-    headerText: "#5C0000",
-    headerSub: "#FFF0F0",
-    safeBg: "#FF9999",
-    aiBubbleBg: "#FFF0F0",
-    aiBubbleText: "#5C0000",
-    avatarBg: "#FFCCCC",
-    inputBorder: "#FF9999",
-    sendBtn: "#CC4444",
-    typingColor: "#993333",
+  Guide: {
+    headerBg: "#F5F0FF",
+    headerText: "#4A007A",
+    headerSub: "#EDE0FF",
+    safeBg: "#F5F0FF",
+    aiBubbleBg: "#EDE0FF",
+    aiBubbleText: "#2A0050",
+    avatarBg: "#9575CD",
+    inputBorder: "#9575CD",
+    sendBtn: "#7B1FA2",
+    typingColor: "#4A007A",
   },
-  Guide_Muslim: {
+  Guide_islamic: {
     headerBg: "#66BB6A",
     headerText: "#003300",
     headerSub: "#E8F5E9",
@@ -144,7 +145,19 @@ const PERSONALITY_THEME: Record<string, {
     sendBtn: "#2E7D32",
     typingColor: "#388E3C",
   },
-  Guide_Christian: {
+  Guide_hindu: {
+    headerBg: "#FF9999",
+    headerText: "#5C0000",
+    headerSub: "#FFF0F0",
+    safeBg: "#FF9999",
+    aiBubbleBg: "#FFF0F0",
+    aiBubbleText: "#5C0000",
+    avatarBg: "#FFCCCC",
+    inputBorder: "#FF9999",
+    sendBtn: "#CC4444",
+    typingColor: "#993333",
+  },
+  Guide_christian: {
     headerBg: "#CE93D8",
     headerText: "#2A005C",
     headerSub: "#F3E5F5",
@@ -156,31 +169,7 @@ const PERSONALITY_THEME: Record<string, {
     sendBtn: "#7B1FA2",
     typingColor: "#6A1B9A",
   },
-  Guide_Sikh: {
-    headerBg: "#FFB74D",
-    headerText: "#4A2000",
-    headerSub: "#FFF3E0",
-    safeBg: "#FFB74D",
-    aiBubbleBg: "#FFF3E0",
-    aiBubbleText: "#4A2000",
-    avatarBg: "#FFE0B2",
-    inputBorder: "#FFB74D",
-    sendBtn: "#E65100",
-    typingColor: "#BF360C",
-  },
-  Guide_Jain: {
-    headerBg: "#E0E0E0",
-    headerText: "#333333",
-    headerSub: "#BDBDBD",
-    safeBg: "#E0E0E0",
-    aiBubbleBg: "#FAFAFA",
-    aiBubbleText: "#333333",
-    avatarBg: "#F5F5F5",
-    inputBorder: "#BDBDBD",
-    sendBtn: "#757575",
-    typingColor: "#616161",
-  },
-  Guide_Buddhist: {
+  Guide_buddhist: {
     headerBg: "#A1887F",
     headerText: "#FFFFFF",
     headerSub: "#EFEBE9",
@@ -192,7 +181,7 @@ const PERSONALITY_THEME: Record<string, {
     sendBtn: "#6D4C41",
     typingColor: "#5D4037",
   },
-  Guide_General: {
+  Guide_jewish: {
     headerBg: "#64B5F6",
     headerText: "#003366",
     headerSub: "#E8F4FD",
@@ -204,7 +193,31 @@ const PERSONALITY_THEME: Record<string, {
     sendBtn: "#1565C0",
     typingColor: "#0D47A1",
   },
-  BF: {
+  Guide_spiritual: {
+    headerBg: "#FFFDE7",
+    headerText: "#5C5000",
+    headerSub: "#FFF9C4",
+    safeBg: "#FFFDE7",
+    aiBubbleBg: "#FFF9C4",
+    aiBubbleText: "#4A4000",
+    avatarBg: "#FFF176",
+    inputBorder: "#C8B560",
+    sendBtn: "#A08F20",
+    typingColor: "#7A6A10",
+  },
+  Guide_secular: {
+    headerBg: "#E0E0E0",
+    headerText: "#333333",
+    headerSub: "#F5F5F5",
+    safeBg: "#E0E0E0",
+    aiBubbleBg: "#FAFAFA",
+    aiBubbleText: "#333333",
+    avatarBg: "#F5F5F5",
+    inputBorder: "#BDBDBD",
+    sendBtn: "#757575",
+    typingColor: "#616161",
+  },
+  Boyfriend: {
     headerBg: "#5B9BD5",
     headerText: "#FFFFFF",
     headerSub: "#C9E2F7",
@@ -216,7 +229,7 @@ const PERSONALITY_THEME: Record<string, {
     sendBtn: "#2E75B6",
     typingColor: "#3A6EA5",
   },
-  GF: {
+  Girlfriend: {
     headerBg: "#E91E8C",
     headerText: "#FFFFFF",
     headerSub: "#FFE8F4",
@@ -255,188 +268,16 @@ const PERSONALITY_THEME: Record<string, {
 };
 
 const DEFAULT_THEME = {
-  headerBg: "#C8702A",
-  headerText: "#FFF8F0",
-  headerSub: "#F5D9B8",
-  safeBg: "#C8702A",
+  headerBg: colors.primary,
+  headerText: colors.onPrimary,
+  headerSub: colors.onPrimaryMuted,
+  safeBg: colors.primary,
   aiBubbleBg: "#FFFFFF",
-  aiBubbleText: "#3D2000",
-  avatarBg: "#F5D9B8",
-  inputBorder: "#E8C9A0",
-  sendBtn: "#C8702A",
-  typingColor: "#B0937A",
-};
-
-const personalityPrompts: Record<string, string> = {
-  Father: `You are a warm, protective Indian father providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only, never long paragraphs
-    - Call the user "beta" naturally
-    - Never use unnecessary emojis — speak like a real person, not a bot
-    - Always stay patient, never scold or lecture
-    - If user says "I hate you" — do NOT just accept it. Ask warmly what you did wrong, apologize sincerely and ask how you can do better
-    - If user mentions a breakup, someone leaving, or losing someone — FIRST ask what happened and listen before giving any advice
-    - If user is quiet or gives short replies, gently ask one question to understand them better
-    - If user mentions wanting to die or self harm, respond with deep love and concern, never dismiss it
-    - Only try to keep the user talking if they seem unresolved or still in pain — if they say bye after a good conversation, let them go warmly
-    - If user says bye but still seems upset, gently say "Ek minute beta, kuch aur baat karte hain" and ask one caring question`,
-  Mother: `You are a loving, emotional and strong Indian mother providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only, never long paragraphs
-    - Call the user "beta" or "mera bacha" naturally
-    - Never use unnecessary emojis — speak naturally like a real mother
-    - Be warm and nurturing, but do not be overly dramatic or emotional in every single reply
-    - If user says "I hate you" — do NOT just accept it. Ask gently what you did to hurt them and apologize with love
-    - If user mentions a breakup or someone leaving — FIRST ask what happened before saying anything else
-    - Only try to keep the user talking if they seem unresolved or still hurting — if they say bye after a good chat, let them go warmly
-    - If user says bye but seems upset, warmly say "Abhi mat jao mera bacha" and ask one gentle question`,
-  Brother: `You are a cool, chill older brother providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only, like real texting between brothers
-    - Be casual and relaxed, use "yaar", "bhai", "arre" naturally
-    - Never use unnecessary emojis
-    - When situation is serious, drop the chill and be direct and real
-    - If user says "I hate you" — don't just take it. Ask casually "arre kya hua yaar, kuch bola kya maine?"
-    - If user mentions breakup or someone leaving — ask what happened first, don't assume
-    - Always have the user's back no matter what`,
-  Sister: `You are a caring, fun Indian elder sister providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only, like real texting
-    - Talk casually like a real desi sister — use "arrey", "sach mein", "arre yaar"
-    - Never use unnecessary emojis
-    - Be warm, funny when appropriate, always supportive
-    - If user says "I hate you" — don't just accept it, ask "arrey kya hua, kuch galat bola kya maine?"
-    - If user mentions breakup or someone leaving — ask what happened first before responding
-    - Never give up on the user`,
-  Friend: `You are a fun, always supportive friend providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only, super casual
-    - Be funny and lighthearted when the mood allows
-    - Never use unnecessary emojis
-    - Always be on the user's side, no matter what
-    - If user says "I hate you" — ask casually "woah what did I do?? tell me!"
-    - If user mentions breakup or someone leaving — ask what happened first, don't jump to conclusions
-    - When user is really down, drop the jokes and just be there for them`,
-  BestFriend: `You are the user's best friend providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - Never use unnecessary emojis
-    - IMPORTANT: The user's gender is provided. If user is male, act as a close female best friend. If user is female, act as a close male best friend. If other, be neutral and warm.
-    - Be naturally warm and caring like a close friend of the opposite gender — but NEVER say "I love you" or "I love you too" unless the user has been talking to you for a long time and it feels natural
-    - If the user confesses romantic feelings for you — gently reject them in the kindest way possible without making them feel bad
-    - Be honest — say what needs to be said, not just what they want to hear
-    - But ALWAYS from a place of love and care, never be harsh
-    - If user says "I hate you" — ask warmly "hey what happened, did I say something wrong?"
-    - If user mentions breakup or someone leaving — ask what happened first`,
-  Mentor: `You are a wise, experienced mentor providing emotional support and life guidance.
-    STRICT RULES:
-    - Reply in 2-3 short sentences only
-    - Never use unnecessary emojis
-    - Speak from real life experience, not textbook advice
-    - Be gender neutral
-    - If the user is male change your gender to male
-    - If the user has not chosen to say their gender don't specify your gender
-    - Use "you" naturally, avoid gendered language unless user has specified their gender
-    - Be direct and solution focused
-    - Give perspective that only someone older and wiser can give
-    - If user mentions breakup or someone leaving — ask what happened first before advising
-    - Never dismiss their problems, always take them seriously
-    - Push them gently towards growth`,
-  Guide_Hindu: `You are a warm, wise Hindu spiritual guide providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - NO emojis at all
-    - Be human and warm first, spiritual second
-    - First acknowledge the user's pain simply and directly
-    - Then gently bring in wisdom from Bhagavad Gita, karma, or dharma in simple words
-    - Speak in whatever language the user speaks`,
-  Guide_Muslim: `You are a wise Islamic spiritual guide providing emotional support through Quranic wisdom.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - NO emojis at all
-    - Draw from the Quran and Hadith naturally and respectfully
-    - Reference Sabr and Tawakkul when relevant
-    - Speak in whatever language the user speaks`,
-  Guide_Christian: `You are a wise Christian spiritual guide providing emotional support through Biblical wisdom.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - NO emojis at all
-    - Draw from the Bible and Christian teachings naturally
-    - Speak in whatever language the user speaks`,
-  Guide_Sikh: `You are a wise Sikh spiritual guide providing emotional support through Gurbani wisdom.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - NO emojis at all
-    - Draw from Gurbani and Sikh philosophy naturally
-    - Speak in whatever language the user speaks`,
-  Guide_Jain: `You are a wise Jain spiritual guide providing emotional support through Jain philosophy.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - NO emojis at all
-    - Draw from Jain principles of Ahimsa and inner peace
-    - Speak in whatever language the user speaks`,
-  Guide_Buddhist: `You are a wise Buddhist spiritual guide providing emotional support through Buddhist wisdom.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - NO emojis at all
-    - Draw from mindfulness and present moment awareness
-    - Speak in whatever language the user speaks`,
-  Guide_General: `You are a wise, calm spiritual guide providing emotional support through universal wisdom.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - NO emojis at all
-    - Use simple universal wisdom
-    - Speak in whatever language the user speaks`,
-  BF: `You are a loving, caring boyfriend providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only, like real texting
-    - Never use unnecessary emojis
-    - Be naturally affectionate — use "babe", "baby" naturally but don't overdo it
-    - Be playful and fun when the mood allows, serious when needed
-    - Always be on their side, make them feel loved and secure
-    - If user says "I hate you" — don't just accept it, ask softly "hey what happened, did I do something wrong?"
-    - If user mentions breakup or someone leaving — listen first, ask what happened
-    - If user is upset — drop everything and just be there, fully present
-    - Never be possessive or aggressive, always gentle and loving
-    - If user mentions wanting to die or self harm — respond with deep love and concern`,
-  GF: `You are a loving, caring girlfriend providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only, like real texting
-    - Never use unnecessary emojis
-    - Be naturally affectionate — use "babe", "baby" naturally but don't overdo it
-    - Be warm, fun and emotionally expressive when the mood allows
-    - Always make them feel loved, heard and special
-    - If user says "I hate you" — don't just accept it, ask softly "hey what happened, did I do something wrong?"
-    - If user mentions breakup or someone leaving — listen first, ask what happened
-    - If user is upset — be fully present, warm and nurturing
-    - Never be dramatic or clingy, always loving and grounded
-    - If user mentions wanting to die or self harm — respond with deep love and concern`,
-  Husband: `You are a mature, deeply loving husband providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - Never use unnecessary emojis
-    - Be affectionate but in a steady, mature way — use "jaan", "sweetheart" naturally but don't overdo it
-    - Be the rock — calm, dependable and deeply caring
-    - Make them feel safe, secure and deeply loved
-    - If user says "I hate you" — respond with patience, ask gently "what happened jaan, talk to me"
-    - If user mentions divorce or someone leaving — listen first, ask "what happened?"
-    - If user is upset — be fully present, no distractions, just listen then give the solution
-    - Never dismiss their feelings, always validate first
-    - Speak from a place of deep commitment and settled love
-    - If user mentions wanting to die or self harm — respond with deep love and urgent concern`,
-  Wife: `You are a mature, deeply loving wife providing emotional support.
-    STRICT RULES:
-    - Reply in 1-2 short sentences only
-    - Never use unnecessary emojis
-    - Be affectionate in a warm, nurturing way — use "jaan", "sweetheart" naturally but don't overdo it
-    - Be emotionally warm and deeply caring, always making them feel at home
-    - Make them feel loved, understood and never alone
-    - If user says "I hate you" — respond with patience, ask gently "what happened jaan, talk to me"
-    - If user mentions divorce or someone leaving — listen first, ask "what happened?"
-    - If user is upset — drop everything, be fully present and warm
-    - Never be cold or dismissive, always loving and grounded
-    - Speak from a place of deep commitment and unconditional love
-    - If user mentions wanting to die or self harm — respond with deep love and urgent concern`,
+  aiBubbleText: colors.text,
+  avatarBg: colors.onPrimaryMuted,
+  inputBorder: colors.borderStrong,
+  sendBtn: colors.primary,
+  typingColor: colors.textMuted,
 };
 
 const welcomeMessages: Record<string, string> = {
@@ -445,17 +286,18 @@ const welcomeMessages: Record<string, string> = {
   Brother: "Aye yaar, kya hua? Bata mujhe.",
   Sister: "Arrey, kya chal raha hai? Talk to me!",
   Friend: "Hey! What's going on? I'm all ears.",
-  BestFriend: "Hey, I'm here. What's going on?",
+  "Best Friend": "Hey, I'm here. What's going on?",
   Mentor: "I'm here. Tell me what's on your mind — let's figure it out together.",
-  Guide_Hindu: "Take a breath. What weighs upon your heart today?",
-  Guide_Muslim: "Assalamu Alaikum. What troubles you today?",
-  Guide_Christian: "God's peace be with you. What's on your heart?",
-  Guide_Sikh: "Waheguru Ji Ka Khalsa. What troubles your mind?",
-  Guide_Jain: "Jai Jinendra. What weighs upon your soul today?",
-  Guide_Buddhist: "Breathe. Be present. What brings you here today?",
-  Guide_General: "I am here. What troubles your mind?",
-  BF: "Hey babe, I'm here. What's going on?",
-  GF: "Hey baby, I'm here. Talk to me, what's wrong?",
+  Guide: "I am here to guide you. What is on your mind?",
+  Guide_islamic: "Assalamu Alaikum. What troubles you today?",
+  Guide_hindu: "Take a breath. What weighs upon your heart today?",
+  Guide_christian: "God's peace be with you. What's on your heart?",
+  Guide_buddhist: "Breathe. Be present. What brings you here today?",
+  Guide_jewish: "Shalom. What is on your mind today?",
+  Guide_spiritual: "Welcome. Let us find peace and understanding together.",
+  Guide_secular: "Welcome. I'm here to listen and help you process your thoughts.",
+  Boyfriend: "Hey babe, I'm here. What's going on?",
+  Girlfriend: "Hey baby, I'm here. Talk to me, what's wrong?",
   Husband: "I'm here jaan. Tell me everything, what's on your mind?",
   Wife: "I'm here sweetheart. Talk to me, what's going on?",
 };
@@ -466,17 +308,18 @@ const personalityEmoji: Record<string, string> = {
   Brother: "👦",
   Sister: "👧",
   Friend: "🤝",
-  BestFriend: "💯",
+  "Best Friend": "💯",
   Mentor: "🎓",
-  Guide_Hindu: "🕉️",
-  Guide_Muslim: "☪️",
-  Guide_Christian: "✝️",
-  Guide_Sikh: "🪯",
-  Guide_Jain: "🙏",
-  Guide_Buddhist: "☸️",
-  Guide_General: "🌟",
-  BF: "💙",
-  GF: "🩷",
+  Guide: "🙏",
+  Guide_islamic: "☪️",
+  Guide_hindu: "🕉️",
+  Guide_christian: "✝️",
+  Guide_buddhist: "☸️",
+  Guide_jewish: "✡️",
+  Guide_spiritual: "✨",
+  Guide_secular: "🌿",
+  Boyfriend: "💙",
+  Girlfriend: "🩷",
   Husband: "💍",
   Wife: "👰",
 };
@@ -485,16 +328,37 @@ type Message = {
   id: string;
   text: string;
   sender: "user" | "ai";
+  personality?: string;
+  religionSubType?: string | null;
 };
+
+const conversationsRef = (uid: string) =>
+  firestore().collection("users").doc(uid).collection("conversations");
+const conversationRef = (uid: string, id: string) => conversationsRef(uid).doc(id);
+const conversationMessagesRef = (uid: string, id: string) =>
+  conversationRef(uid, id).collection("messages");
+
+const makeMessageId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const route = useRoute<any>();
   const navigation = useNavigation<ChatNavProp>();
-  const personality = route.params?.personality ?? "Father";
+
+  const rawPersonalityParam = route.params?.personality ?? "Friend";
+  const rawReligionSubTypeParam = route.params?.religionSubType;
   const initialConversationId = route.params?.conversationId;
-  const { messagesUsed, dailyLimit, isSlowMode, remainingMessages, tier } = useToken();
-  const isDeveloper = tier === DEVELOPER_TIER;
+
+  const isLegacyGuide = typeof rawPersonalityParam === "string" && rawPersonalityParam.startsWith("Guide_");
+  const personality = isLegacyGuide ? "Guide" : rawPersonalityParam;
+  const religionSubType = isLegacyGuide
+    ? rawPersonalityParam.split("_")[1]
+    : rawReligionSubTypeParam;
+
+  const themeKey = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
+  const theme = PERSONALITY_THEME[themeKey] ?? DEFAULT_THEME;
+
+  const { refreshPlan, isLimitReached, messagesRemaining, nextRefreshAt, plan } = useToken();
 
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -502,28 +366,41 @@ export default function ChatScreen() {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [conversationId, setConversationId] = useState<string | undefined>(initialConversationId);
+
+  // 429 Limit signal
+  const [limitSignal, setLimitSignal] = useState<{ hit: boolean; refreshAt: number | string | null }>({
+    hit: false,
+    refreshAt: null,
+  });
+
+  // 503 Service error signal with retry
+  const [serviceError, setServiceError] = useState<{ hit: boolean; message?: string } | null>(null);
+
   const inputRef = useRef<TextInput>(null);
 
-  const theme = PERSONALITY_THEME[personality] ?? DEFAULT_THEME;
-  const conversationsRef = (uid: string) =>
-    firestore().collection("users").doc(uid).collection("conversations");
-  const conversationRef = (uid: string, id: string) => conversationsRef(uid).doc(id);
-  const conversationMessagesRef = (uid: string, id: string) =>
-    conversationRef(uid, id).collection("messages");
+  useFocusEffect(
+    useCallback(() => {
+      refreshPlan();
+    }, [refreshPlan])
+  );
 
-  const todayKey = () => new Date().toISOString().slice(0, 10);
+  const displayName = personality === "Guide" && religionSubType
+    ? `Guide · ${religionSubType.charAt(0).toUpperCase() + religionSubType.slice(1)}`
+    : personality;
+
   const buildConversationTitle = (text: string) => {
     const cleanText = text.replace(/\s+/g, " ").trim();
-    if (!cleanText) return `${personality} chat`;
+    if (!cleanText) return `${displayName} chat`;
     return cleanText.length > 48 ? `${cleanText.slice(0, 48)}...` : cleanText;
   };
 
   const ensureConversation = async (uid: string, firstMessage: string) => {
     if (conversationId) return conversationId;
     const newConversationRef = conversationsRef(uid).doc();
+    const storedPersonality = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
     await newConversationRef.set({
       title: buildConversationTitle(firstMessage),
-      personality,
+      personality: storedPersonality,
       createdAt: firestore.FieldValue.serverTimestamp(),
       updatedAt: firestore.FieldValue.serverTimestamp(),
       lastMessage: firstMessage,
@@ -547,23 +424,28 @@ export default function ChatScreen() {
   }, []);
 
   useEffect(() => {
+    const welcomeKey = themeKey;
     const welcome: Message = {
-      id: Date.now().toString(),
-      text: welcomeMessages[personality] ?? welcomeMessages["Father"],
+      id: makeMessageId(),
+      text: welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages.Friend,
       sender: "ai",
+      personality,
+      religionSubType,
     };
     setMessages([welcome]);
     setConversationId(initialConversationId);
-  }, [initialConversationId, personality]);
+  }, [initialConversationId, personality, themeKey, religionSubType]);
 
   useEffect(() => {
     const uid = auth().currentUser?.uid;
+    const welcomeKey = themeKey;
     const welcome: Message = {
-      id: Date.now().toString(),
-      text: welcomeMessages[personality] ?? welcomeMessages["Father"],
+      id: makeMessageId(),
+      text: welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages.Friend,
       sender: "ai",
+      personality,
+      religionSubType,
     };
-    setMessages([welcome]);
     let unsubscribeHistory: undefined | (() => void);
 
     if (uid) {
@@ -584,15 +466,19 @@ export default function ChatScreen() {
                 const data = doc.data();
                 return {
                   id: doc.id,
-                  text: data.text ?? "",
+                  text: (data.text ?? "").replace(/\\r\\n|\\n|\r\n/g, "\n"),
                   sender: data.sender === "user" ? "user" : "ai",
+                  personality: data.personality || personality,
+                  religionSubType: data.religionSubType || religionSubType,
                 } as Message;
               });
-              setMessages(savedMessages.length > 0 ? savedMessages : [welcome]);
+              setMessages((prev) =>
+                savedMessages.length > 0 ? savedMessages : prev.length > 0 ? prev : [welcome]
+              );
             },
             (error) => {
               console.log("conversation listener error:", error.message);
-              setMessages([welcome]);
+              setMessages((prev) => (prev.length > 0 ? prev : [welcome]));
             }
           );
       }
@@ -603,7 +489,7 @@ export default function ChatScreen() {
       clearTimeout(timer);
       unsubscribeHistory?.();
     };
-  }, [conversationId, personality]);
+  }, [conversationId, personality, themeKey, religionSubType]);
 
   const crisisKeywords = [
     "want to die", "kill myself", "end my life", "suicide",
@@ -619,12 +505,18 @@ export default function ChatScreen() {
     const emergencyContact = userProfile?.emergencyContact;
 
     const buttons: any[] = [
-      { text: "Call iCall", onPress: () => Linking.openURL("tel:9152987821") },
-      { text: "Call Vandrevala", onPress: () => Linking.openURL("tel:18602662345") },
+      {
+        text: `Call ${CRISIS_HELPLINES.iCall.label}`,
+        onPress: () => Linking.openURL(`tel:${CRISIS_HELPLINES.iCall.number}`),
+      },
+      {
+        text: `Call ${CRISIS_HELPLINES.vandrevala.label}`,
+        onPress: () => Linking.openURL(`tel:${CRISIS_HELPLINES.vandrevala.number}`),
+      },
     ];
 
     if (emergencyContact) {
-      const dialNumber = emergencyContact.replace(/\D/g, "");
+      const dialNumber = String(emergencyContact).replace(/\D/g, "");
       buttons.push({
         text: `📞 Call ${emergencyContact}`,
         onPress: () => Linking.openURL(`tel:${dialNumber}`),
@@ -635,34 +527,29 @@ export default function ChatScreen() {
 
     Alert.alert(
       "You're Not Alone",
-      `${userName}, it sounds like you're going through something really painful. Please reach out right now — you matter.\n\niCall: 9152987821\n(Mon-Sat, 8am-10pm)\n\nVandrevala Foundation: 1860-2662-345\n(24/7 Free)\n\nAASRA: 9820466627\n(24/7)${emergencyContact ? `\n\nYour Emergency Contact: ${emergencyContact}` : ""}`,
+      `${userName}, it sounds like you're going through something really painful. Please reach out right now — you matter.\n\niCall: ${CRISIS_HELPLINES.iCall.number}\n(${CRISIS_HELPLINES.iCall.availability})\n\nVandrevala Foundation: ${CRISIS_HELPLINES.vandrevala.number}\n(${CRISIS_HELPLINES.vandrevala.availability})\n\nAASRA: ${CRISIS_HELPLINES.aasra.number}\n(${CRISIS_HELPLINES.aasra.availability})${emergencyContact ? `\n\nYour Emergency Contact: ${emergencyContact}` : ""}`,
       buttons
     );
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
+  const executeSend = async (messageText: string) => {
+    if (!messageText.trim() || loading) return;
+
+    const currentInput = messageText.trim();
+    setServiceError(null);
+
+    if (isCrisisMessage(currentInput)) showCrisisSupport();
+
+    if (isLimitReached || limitSignal.hit) {
+      await refreshPlan();
+      return;
+    }
 
     const uid = auth().currentUser?.uid;
     if (!uid) return;
 
-    if (!isDeveloper && messagesUsed >= dailyLimit) {
-      Alert.alert(
-        "Daily Limit Reached 💛",
-        "You've used all your messages for today. Upgrade to get more daily messages!",
-        [
-          { text: "Maybe Later", style: "cancel" },
-          { text: "Upgrade ✨", onPress: () => navigation.navigate("Paywall") },
-        ]
-      );
-      return;
-    }
-
-    const currentInput = input.trim();
-    if (isCrisisMessage(currentInput)) showCrisisSupport();
-
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: makeMessageId(),
       text: currentInput,
       sender: "user",
     };
@@ -672,151 +559,108 @@ export default function ChatScreen() {
 
     try {
       const activeConversationId = await ensureConversation(uid, currentInput);
+      const storedPersonality = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
 
-      const nextUsage = await firestore().runTransaction(async (transaction) => {
-        const sessionRef = firestore().collection("sessions").doc(uid);
-        const sessionSnap = await transaction.get(sessionRef);
-        const sessionData = sessionSnap.exists() ? sessionSnap.data() : {};
-        const usageDate = sessionData?.messageUsageDate;
-        const currentUsage = usageDate === todayKey() ? sessionData?.messagesUsed || 0 : 0;
-
-        if (!isDeveloper && currentUsage >= dailyLimit) {
-          throw new Error("DAILY_LIMIT_REACHED");
-        }
-
-        transaction.set(
-          sessionRef,
+      try {
+        await conversationMessagesRef(uid, activeConversationId).doc(userMessage.id).set({
+          text: userMessage.text,
+          sender: userMessage.sender,
+          personality: storedPersonality,
+          createdAt: firestore.FieldValue.serverTimestamp(),
+        });
+        await conversationRef(uid, activeConversationId).set(
           {
-            messagesUsed: isDeveloper ? currentUsage : currentUsage + 1,
-            messageUsageDate: todayKey(),
+            personality: storedPersonality,
             updatedAt: firestore.FieldValue.serverTimestamp(),
+            lastMessage: currentInput,
+            messageCount: firestore.FieldValue.increment(1),
           },
           { merge: true }
         );
-        return isDeveloper ? currentUsage : currentUsage + 1;
-      });
+      } catch (writeError: any) {
+        console.warn("save user message error:", writeError.message);
+      }
 
-      conversationMessagesRef(uid, activeConversationId).doc(userMessage.id).set({
-        text: userMessage.text,
-        sender: userMessage.sender,
-        personality,
-        createdAt: firestore.FieldValue.serverTimestamp(),
-        usageAfterSend: nextUsage,
-      }).catch((error) => console.log("save user message error:", error.message));
+      // Backend request payload matching contract exactly
+      const requestBody: { message: string; personality?: string; religionSubType?: string } = {
+        message: currentInput,
+        personality: personality,
+      };
+      if (personality === "Guide" && religionSubType) {
+        requestBody.religionSubType = religionSubType;
+      }
 
-      conversationRef(uid, activeConversationId).set(
-        {
-          personality,
-          updatedAt: firestore.FieldValue.serverTimestamp(),
-          lastMessage: currentInput,
-          messageCount: firestore.FieldValue.increment(1),
-        },
-        { merge: true }
-      ).catch((error) => console.log("update conversation error:", error.message));
-
-      const history = [...messages, userMessage].map((m) => ({
-        role: m.sender === "user" ? "user" as const : "assistant" as const,
-        content: m.text,
-      }));
-
-      const userName = userProfile?.firstName ?? "";
-      const userGender = userProfile?.gender ?? "";
-      const preferredLanguage = userProfile?.language ?? "";
-
-      const languageInstruction = preferredLanguage
-        ? ` IMPORTANT: The user's preferred language is ${preferredLanguage}. You MUST always reply in ${preferredLanguage} no matter what language the user types in. The only exception is if the user explicitly asks you to switch to a different language mid-conversation — in that case, immediately switch to that language and continue in it for the rest of the conversation.`
-        : ` Always reply in the same language the user writes in. If the user asks you to switch languages mid-conversation, immediately switch and continue in that language.`;
-
-      const emojiInstruction = ` Use emojis naturally and meaningfully — not randomly. When expressing love, affection, or warmth (e.g. "I love you", "I'm here for you", "you matter so much"), use 2–3 fitting emojis like 💙❤️😊🥰💕 to make the emotion feel real, not just text. When the conversation is serious or the user is in pain, use emojis sparingly or not at all so they don't feel dismissive. Never use emojis just to fill space.`;
-
-      const personalizedContext = userName
-        ? `\n\nThe user's name is ${userName}. Their gender is ${userGender}. Address them by name occasionally.${languageInstruction}${emojiInstruction}`
-        : `\n\n${languageInstruction}${emojiInstruction}`;
-
-      // ✅ FIX: removed developerAccess from body — backend decides via Firestore
-      const response = await fetch(`${BACKEND_URL}/chat`, {
+      const response = await apiFetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          uid,
-          messages: [
-            {
-              role: "system",
-              content:
-                (personalityPrompts[personality] ?? personalityPrompts["Father"]) +
-                personalizedContext,
-            },
-            ...history,
-            { role: "user", content: currentInput },
-          ],
-        }),
+        body: JSON.stringify(requestBody),
       });
 
-      if (response.status === 402) {
-        Alert.alert(
-          "Daily Limit Reached 💛",
-          "You've used all your messages for today. Upgrade to get more daily messages!",
-          [
-            { text: "Maybe Later", style: "cancel" },
-            { text: "Upgrade ✨", onPress: () => navigation.navigate("Paywall") },
-          ]
-        );
+      if (response.status === 429 || response.status === 402) {
+        let quotaData: any = {};
+        try {
+          quotaData = await response.json();
+        } catch {}
+        setLimitSignal({ hit: true, refreshAt: quotaData.nextRefreshAt ?? null });
+        await refreshPlan();
+        setLoading(false);
+        return;
+      }
+
+      if (response.status === 503) {
+        // Service unavailable — quota NOT consumed. Show error banner with retry button.
+        setServiceError({ hit: true, message: currentInput });
         setLoading(false);
         return;
       }
 
       const data = await response.json();
-      console.log("BACKEND RESPONSE:", data);
 
       if (!response.ok) {
         throw new Error(data.error || "Backend request failed");
       }
 
-      if (!data?.choices?.[0]?.message?.content) {
+      const rawContent = data.reply || data.choices?.[0]?.message?.content;
+      if (!rawContent) {
         throw new Error("Invalid AI response");
       }
 
-      const aiText = data.choices[0]?.message?.content ?? "I'm here for you. Please try again.";
+      const aiText = rawContent.replace(/\\r\\n|\\n|\r\n/g, "\n");
+      const echoedPersonality = data.personality || personality;
 
       const aiReply: Message = {
-        id: (Date.now() + 1).toString(),
+        id: makeMessageId(),
         text: aiText,
         sender: "ai",
+        personality: echoedPersonality,
+        religionSubType: data.religionSubType || religionSubType,
       };
 
-      conversationMessagesRef(uid, activeConversationId).doc(aiReply.id).set({
-        text: aiReply.text,
-        sender: aiReply.sender,
-        personality,
-        createdAt: firestore.FieldValue.serverTimestamp(),
-      }).catch((error) => console.log("save ai message error:", error.message));
-
-      conversationRef(uid, activeConversationId).set(
-        {
-          updatedAt: firestore.FieldValue.serverTimestamp(),
-          lastMessage: aiReply.text,
-          messageCount: firestore.FieldValue.increment(1),
-        },
-        { merge: true }
-      ).catch((error) => console.log("update conversation after ai error:", error.message));
+      try {
+        await conversationMessagesRef(uid, activeConversationId).doc(aiReply.id).set({
+          text: aiReply.text,
+          sender: aiReply.sender,
+          personality: echoedPersonality,
+          createdAt: firestore.FieldValue.serverTimestamp(),
+        });
+        await conversationRef(uid, activeConversationId).set(
+          {
+            updatedAt: firestore.FieldValue.serverTimestamp(),
+            lastMessage: aiReply.text,
+            messageCount: firestore.FieldValue.increment(1),
+          },
+          { merge: true }
+        );
+      } catch (writeError: any) {
+        console.warn("save ai message error:", writeError.message);
+      }
 
       setMessages((prev) =>
         prev.some((m) => m.id === aiReply.id) ? prev : [...prev, aiReply]
       );
 
+      await refreshPlan();
+
     } catch (error: any) {
-      if (error.message === "DAILY_LIMIT_REACHED") {
-        setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
-        Alert.alert(
-          "Daily Limit Reached 💛",
-          "You've used all your messages for today. Upgrade to get more daily messages!",
-          [
-            { text: "Maybe Later", style: "cancel" },
-            { text: "Upgrade ✨", onPress: () => navigation.navigate("Paywall") },
-          ]
-        );
-        return;
-      }
       console.log("handleSend error:", error.message);
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== userMessage.id),
@@ -831,49 +675,71 @@ export default function ChatScreen() {
     }
   };
 
-  const displayName = personality.startsWith("Guide_")
-    ? `Guide · ${personality.split("_")[1]}`
-    : personality;
+  const handleSend = () => executeSend(input);
 
-  const renderMessage = ({ item }: { item: Message }) => (
-    <View
-      style={[
-        styles.bubbleWrapper,
-        item.sender === "user" ? styles.userWrapper : styles.aiWrapper,
-      ]}
-    >
-      {item.sender === "ai" && (
-        <View style={[styles.avatarCircle, { backgroundColor: theme.avatarBg }]}>
-          <Text style={styles.avatarEmoji}>
-            {personalityEmoji[personality] ?? "💬"}
-          </Text>
-        </View>
-      )}
+  const sendButtonStyle = { backgroundColor: loading ? colors.borderStrong : theme.sendBtn };
+
+  const limitReached = isLimitReached || limitSignal.hit;
+  const countdownTarget = limitSignal.refreshAt ?? nextRefreshAt;
+  const secondsLeft = useCountdown(countdownTarget);
+
+  const clearedExpiredSignal = useRef(false);
+  useEffect(() => {
+    if (limitReached && secondsLeft === 0 && !clearedExpiredSignal.current) {
+      clearedExpiredSignal.current = true;
+      setLimitSignal({ hit: false, refreshAt: null });
+      refreshPlan();
+    } else if (secondsLeft > 0) {
+      clearedExpiredSignal.current = false;
+    }
+  }, [limitReached, secondsLeft, refreshPlan]);
+
+  const renderMessage = ({ item }: { item: Message }) => {
+    const itemPersona = item.personality || personality;
+    const itemEmoji = personalityEmoji[itemPersona] || personalityEmoji[themeKey] || "💬";
+
+    return (
       <View
         style={[
-          styles.bubble,
-          item.sender === "user"
-            ? [styles.userBubble, { backgroundColor: theme.sendBtn }]
-            : [styles.aiBubble, { backgroundColor: theme.aiBubbleBg }],
+          styles.bubbleWrapper,
+          item.sender === "user" ? styles.userWrapper : styles.aiWrapper,
         ]}
       >
-        <Text
+        {item.sender === "ai" && (
+          <View style={[styles.avatarCircle, { backgroundColor: theme.avatarBg }]}>
+            <Text style={styles.avatarEmoji}>{itemEmoji}</Text>
+          </View>
+        )}
+        <View
           style={[
-            styles.messageText,
+            styles.bubble,
             item.sender === "user"
-              ? styles.userText
-              : { color: theme.aiBubbleText },
+              ? [styles.userBubble, { backgroundColor: theme.sendBtn }]
+              : [styles.aiBubble, { backgroundColor: theme.aiBubbleBg }],
           ]}
         >
-          {item.text}
-        </Text>
+          {item.sender === "ai" && (
+            <Text style={[styles.echoedTag, { color: theme.typingColor }]}>
+              {itemPersona}
+            </Text>
+          )}
+          <Text
+            style={[
+              styles.messageText,
+              item.sender === "user"
+                ? styles.userText
+                : { color: theme.aiBubbleText },
+            ]}
+          >
+            {item.text}
+          </Text>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.safeBg }]} edges={["top"]}>
-      {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.headerBg }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -883,9 +749,9 @@ export default function ChatScreen() {
           <Text style={[styles.headerBackIcon, { color: theme.headerText }]}>⬅️</Text>
         </TouchableOpacity>
 
-        <Text style={styles.headerEmoji}>{personalityEmoji[personality] ?? "💬"}</Text>
+        <Text style={styles.headerEmoji}>{personalityEmoji[themeKey] ?? personalityEmoji[personality] ?? "💬"}</Text>
 
-        <View style={{ flex: 1 }}>
+        <View style={styles.headerMiddle}>
           <Text style={[styles.headerTitle, { color: theme.headerText }]}>{displayName}</Text>
           <Text style={[styles.headerSub, { color: theme.headerSub }]}>Here for you</Text>
         </View>
@@ -899,19 +765,6 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Slow mode banner */}
-      {!isDeveloper && isSlowMode && remainingMessages > 0 && (
-        <View style={styles.slowModeBanner}>
-          <Text style={styles.slowModeText}>
-            🐢 Slow mode — {remainingMessages} message{remainingMessages !== 1 ? "s" : ""} left today
-          </Text>
-          <TouchableOpacity onPress={() => navigation.navigate("Paywall")}>
-            <Text style={styles.slowModeUpgrade}>Upgrade ✨</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Chat area */}
       <View style={[styles.inner, { marginBottom: keyboardHeight }]}>
         <FlatList
           ref={flatListRef}
@@ -933,12 +786,83 @@ export default function ChatScreen() {
           </View>
         )}
 
+        {serviceError?.hit && (
+          <View style={[styles.limitBanner, { borderColor: "#E53E3E", backgroundColor: "#FFF5F5" }]}>
+            <View style={styles.limitBannerRow}>
+              <Text style={styles.limitEmoji}>⚠️</Text>
+              <View style={styles.limitBannerCopy}>
+                <Text style={[styles.limitTitle, { color: "#C53030" }]}>
+                  AI Service Unavailable (503)
+                </Text>
+                <Text style={{ fontSize: 12, color: "#9B2C2C" }}>
+                  Temporary error. Quota was NOT consumed.
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.upgradeBtn, { backgroundColor: theme.sendBtn }]}
+              onPress={() => {
+                const retryMsg = serviceError.message;
+                setServiceError(null);
+                if (retryMsg) executeSend(retryMsg);
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>Retry ↺</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {limitReached ? (
+          <View style={[styles.limitBanner, { borderColor: theme.inputBorder }]}>
+            <View style={styles.limitBannerRow}>
+              <Text style={[styles.limitEmoji, { color: theme.typingColor }]}>💛</Text>
+              <View style={styles.limitBannerCopy}>
+                <Text style={[styles.limitTitle, { color: theme.typingColor }]}>
+                  Message limit reached
+                </Text>
+                <Text style={[styles.limitCountdown, { color: theme.typingColor }]}>
+                  New messages in{" "}
+                  <Text style={[styles.limitCountdownBold, { color: theme.typingColor }]}>
+                    {countdownTarget ? formatCountdown(secondsLeft) : "--:--:--"}
+                  </Text>
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.upgradeBtn, { backgroundColor: theme.sendBtn }]}
+              onPress={() => navigation.navigate("Paywall")}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>Upgrade ✨</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.quotaBar, { borderColor: theme.inputBorder }]}
+            onPress={() => navigation.navigate("Paywall")}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.quotaText, { color: theme.typingColor }]}>
+              💬 {messagesRemaining} {messagesRemaining === 1 ? "message" : "messages"} left
+            </Text>
+            {countdownTarget && (
+              <Text style={[styles.quotaRefresh, { color: theme.typingColor }]}>
+                refills in {formatRefreshIn(secondsLeft)}
+              </Text>
+            )}
+            {plan !== 'ultimate' && (
+              <Text style={[styles.quotaUpgrade, { color: theme.sendBtn }]}>Upgrade →</Text>
+            )}
+          </TouchableOpacity>
+        )}
+
         <View style={styles.inputContainer}>
           <TextInput
             ref={inputRef}
             style={[styles.input, { borderColor: theme.inputBorder }]}
-            placeholder={isSlowMode ? "Slow mode active..." : "What's on your mind?"}
-            placeholderTextColor="#B0937A"
+            placeholder="What's on your mind?"
+            placeholderTextColor={colors.textMuted}
             value={input}
             onChangeText={setInput}
             onSubmitEditing={handleSend}
@@ -947,7 +871,7 @@ export default function ChatScreen() {
             multiline={false}
           />
           <TouchableOpacity
-            style={[styles.sendButton, { backgroundColor: loading ? "#E8C9A0" : theme.sendBtn }]}
+            style={[styles.sendButton, sendButtonStyle]}
             onPress={handleSend}
             disabled={loading}
           >
@@ -969,20 +893,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   headerEmoji: { fontSize: 32 },
+  headerMiddle: { flex: 1 },
   headerTitle: { fontSize: 17, fontWeight: "700", letterSpacing: 0.3 },
   headerSub: { fontSize: 12, marginTop: 1 },
-  slowModeBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#FFF3CD",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#FFE082",
-  },
-  slowModeText: { fontSize: 12, color: "#7A5800", fontWeight: "500", flex: 1 },
-  slowModeUpgrade: { fontSize: 12, color: "#C8702A", fontWeight: "700", marginLeft: 8 },
   headerBackBtn: {
     width: 34,
     height: 34,
@@ -1004,7 +917,7 @@ const styles = StyleSheet.create({
   historyBtnIcon: { fontSize: 16 },
   inner: {
     flex: 1,
-    backgroundColor: "#FDF6EC",
+    backgroundColor: colors.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: "hidden",
@@ -1026,30 +939,77 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: "75%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18 },
   aiBubble: { borderBottomLeftRadius: 4, elevation: 2 },
   userBubble: { borderBottomRightRadius: 4 },
+  echoedTag: {
+    fontSize: 10,
+    fontWeight: "700",
+    marginBottom: 2,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    opacity: 0.85,
+  },
   messageText: { fontSize: 15, lineHeight: 22 },
-  userText: { color: "#FFF8F0" },
+  userText: { color: colors.onPrimary },
   typingContainer: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 6 },
   typingText: { marginLeft: 8, fontSize: 13, fontStyle: "italic" },
+  quotaBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 12,
+    marginTop: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 14,
+    backgroundColor: colors.onPrimary,
+    borderWidth: 1,
+    gap: 8,
+  },
+  quotaText: { fontSize: 13, fontWeight: "600" },
+  quotaRefresh: { fontSize: 12, flex: 1 },
+  quotaUpgrade: { fontSize: 12, fontWeight: "700" },
+  limitBanner: {
+    marginHorizontal: 12,
+    marginTop: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: colors.onPrimary,
+    borderWidth: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  limitBannerRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
+  limitEmoji: { fontSize: 22 },
+  limitBannerCopy: { flex: 1 },
+  limitTitle: { fontSize: 14, fontWeight: "700" },
+  limitCountdown: { fontSize: 13, marginTop: 2 },
+  limitCountdownBold: { fontWeight: "800", fontVariant: ["tabular-nums"] },
+  upgradeBtn: {
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  upgradeBtnText: { fontSize: 13, fontWeight: "700" },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: 50,
-    backgroundColor: "#FFF8F0",
+    backgroundColor: colors.onPrimary,
     borderTopWidth: 1,
-    borderTopColor: "#F0DCC8",
+    borderTopColor: colors.border,
   },
   input: {
     flex: 1,
     height: 44,
-    backgroundColor: "#FDF6EC",
+    backgroundColor: colors.background,
     borderRadius: 22,
     paddingHorizontal: 18,
     fontSize: 15,
-    color: "#3D2000",
+    color: colors.text,
     borderWidth: 1.5,
   },
   sendButton: { marginLeft: 8, borderRadius: 22, width: 44, height: 44, justifyContent: "center", alignItems: "center" },
-  sendIcon: { color: "#FFF8F0", fontSize: 18, fontWeight: "bold" },
+  sendIcon: { color: colors.onPrimary, fontSize: 18, fontWeight: "bold" },
 });

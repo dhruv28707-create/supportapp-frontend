@@ -66,6 +66,13 @@ yarn-error.log
 # testing
 /coverage
 
+# Secrets
+# Local-only keys — never commit real values
+/SRC/secrets.ts
+.env
+.env.*
+!.env.example
+
 # Yarn
 .yarn/*
 !.yarn/patches

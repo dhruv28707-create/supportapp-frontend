@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "1076175086950",
+    "firebase_url": "https://emotional-support-app-6cb9b-default-rtdb.asia-southeast1.firebasedatabase.app",
     "project_id": "emotional-support-app-6cb9b",
     "storage_bucket": "emotional-support-app-6cb9b.firebasestorage.app"
   },
@@ -12,7 +13,20 @@
           "package_name": "com.supportapp"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1076175086950-i66vad90pun3ji3blnpa419bomubipko.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.supportapp",
+            "certificate_hash": "10dbf1f88f7a65d5497402861a13808b3711036f"
+          }
+        },
+        {
+          "client_id": "1076175086950-p5lcqmr3pr8qsliolbk5e33gfsks5f79.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAUjwww8NmuCQUFeXrT-Fu26NkF0AO6RWs"
@@ -20,7 +34,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1076175086950-ebju39jr4e98afp07gq009u20jaqq6bd.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

@@ -1,18 +1,21 @@
-import React, { useEffect } from "react";
+import React, { useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import AppNavigator from "./SRC/navigation/AppNavigator";
-import BootSplash from "react-native-bootsplash";
 import { TokenProvider } from "./SRC/context/TokenContext";
+import SplashScreen from "./SRC/screens/SplashScreen";
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
+import { GOOGLE_WEB_CLIENT_ID } from "./SRC/constants";
+
+GoogleSignin.configure({
+  webClientId: GOOGLE_WEB_CLIENT_ID,
+});
 
 export default function App() {
-  useEffect(() => {
-    const init = async () => {
-      await new Promise<void>((resolve) => setTimeout(resolve, 6000));
-      await BootSplash.hide({ fade: true });
-    };
+  const [splashDone, setSplashDone] = useState(false);
 
-    init();
-  }, []);
+  if (!splashDone) {
+    return <SplashScreen onFinish={() => setSplashDone(true)} />;
+  }
 
   return (
     <TokenProvider>

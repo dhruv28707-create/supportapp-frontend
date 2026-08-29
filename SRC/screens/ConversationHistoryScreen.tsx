@@ -14,6 +14,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import firestore from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
+import { colors } from "../theme";
 
 type HistoryNavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -28,31 +29,37 @@ type Conversation = {
 
 const personalityEmoji: Record<string, string> = {
   Father: "👨", Mother: "👩", Brother: "👦", Sister: "👧",
-  Friend: "🤝", BestFriend: "💯", Mentor: "🎓",
-  Guide_Hindu: "🕉️", Guide_Muslim: "☪️", Guide_Christian: "✝️",
-  Guide_Sikh: "🪯", Guide_Jain: "🙏", Guide_Buddhist: "☸️",
-  Guide_General: "🌟", BF: "💙", GF: "🩷", Husband: "💍", Wife: "👰",
+  Friend: "🤝", "Best Friend": "💯", Mentor: "🎓", Guide: "🙏",
+  Guide_islamic: "☪️", Guide_hindu: "🕉️", Guide_christian: "✝️",
+  Guide_buddhist: "☸️", Guide_jewish: "✡️", Guide_spiritual: "✨", Guide_secular: "🌿",
+  Boyfriend: "💙", Girlfriend: "🩷", Husband: "💍", Wife: "👰",
+  BestFriend: "💯", BF: "💙", GF: "🩷", Guide_Muslim: "☪️", Guide_Hindu: "🕉️", Guide_Christian: "✝️",
 };
 
 const personalityColor: Record<string, string> = {
   Father: "#007FFF", Mother: "#B39DDB", Brother: "#32CD32", Sister: "#FF69B4",
-  Friend: "#FF9F80", BestFriend: "#FFAB8F", Mentor: "#C8B560",
-  Guide_Hindu: "#FF9999", Guide_Muslim: "#66BB6A", Guide_Christian: "#CE93D8",
-  Guide_Sikh: "#FFB74D", Guide_Jain: "#BDBDBD", Guide_Buddhist: "#A1887F",
-  Guide_General: "#64B5F6", BF: "#5B9BD5", GF: "#E91E8C",
-  Husband: "#5C6BC0", Wife: "#E91E63",
+  Friend: "#FF9F80", "Best Friend": "#FFAB8F", Mentor: "#C8B560", Guide: "#9575CD",
+  Guide_islamic: "#66BB6A", Guide_hindu: "#FF9999", Guide_christian: "#CE93D8",
+  Guide_buddhist: "#A1887F", Guide_jewish: "#64B5F6", Guide_spiritual: "#C8B560", Guide_secular: "#BDBDBD",
+  Boyfriend: "#5B9BD5", Girlfriend: "#E91E8C", Husband: "#5C6BC0", Wife: "#E91E63",
+  BestFriend: "#FFAB8F", BF: "#5B9BD5", GF: "#E91E8C", Guide_Muslim: "#66BB6A", Guide_Hindu: "#FF9999", Guide_Christian: "#CE93D8",
 };
 
 // All personalities for filter pills
 const ALL_FILTERS = [
-  "All", "Father", "Mother", "Brother", "Sister", "Friend", "BestFriend",
-  "Mentor", "BF", "GF", "Husband", "Wife",
-  "Guide_Hindu", "Guide_Muslim", "Guide_Christian", "Guide_Sikh",
-  "Guide_Jain", "Guide_Buddhist", "Guide_General",
+  "All", "Father", "Mother", "Brother", "Sister", "Friend", "Best Friend",
+  "Mentor", "Guide", "Husband", "Wife", "Boyfriend", "Girlfriend",
+  "Guide_islamic", "Guide_hindu", "Guide_christian", "Guide_buddhist",
+  "Guide_jewish", "Guide_spiritual", "Guide_secular",
 ];
 
+const ListSeparator = () => <View style={styles.separator} />;
+
 const displayLabel = (personality: string) => {
-  if (personality.startsWith("Guide_")) return `Guide · ${personality.split("_")[1]}`;
+  if (personality.startsWith("Guide_")) {
+    const sub = personality.split("_")[1];
+    return `Guide · ${sub.charAt(0).toUpperCase() + sub.slice(1)}`;
+  }
   if (personality === "BestFriend") return "Best Friend";
   if (personality === "BF") return "Boyfriend";
   if (personality === "GF") return "Girlfriend";
@@ -139,7 +146,7 @@ export default function ConversationHistoryScreen() {
             const uid = auth().currentUser?.uid;
             if (!uid) return;
             try {
-              // Delete all messages in the subcollection first
+              // Delete all messages in the subcollection first.
               const messagesRef = firestore()
                 .collection("users")
                 .doc(uid)
@@ -148,11 +155,17 @@ export default function ConversationHistoryScreen() {
                 .collection("messages");
 
               const messagesSnap = await messagesRef.get();
-              const batch = firestore().batch();
-              messagesSnap.docs.forEach((doc) => batch.delete(doc.ref));
-              await batch.commit();
+              const refs = messagesSnap.docs.map((doc) => doc.ref);
 
-              // Then delete the conversation document
+              // Firestore batches are limited to 500 writes — chunk large chats.
+              const BATCH_LIMIT = 400;
+              for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
+                const batch = firestore().batch();
+                refs.slice(i, i + BATCH_LIMIT).forEach((ref) => batch.delete(ref));
+                await batch.commit();
+              }
+
+              // Then delete the conversation document.
               await firestore()
                 .collection("users")
                 .doc(uid)
@@ -170,8 +183,9 @@ export default function ConversationHistoryScreen() {
   }, []);
 
   const renderConversation = ({ item }: { item: Conversation }) => {
-    const color = personalityColor[item.personality] ?? "#C8702A";
+    const color = personalityColor[item.personality] ?? colors.primary;
     const emoji = personalityEmoji[item.personality] ?? "💬";
+    const avatarBg = { backgroundColor: color + "22" };
 
     return (
       <TouchableOpacity
@@ -181,7 +195,7 @@ export default function ConversationHistoryScreen() {
         activeOpacity={0.82}
       >
         {/* Avatar */}
-        <View style={[styles.avatar, { backgroundColor: color + "22" }]}>
+        <View style={[styles.avatar, avatarBg]}>
           <Text style={styles.avatarEmoji}>{emoji}</Text>
           <View style={[styles.avatarDot, { backgroundColor: color }]} />
         </View>
@@ -209,22 +223,20 @@ export default function ConversationHistoryScreen() {
 
   const renderFilterPill = (filter: string) => {
     const isActive = activeFilter === filter;
-    const color = filter === "All" ? "#C8702A" : (personalityColor[filter] ?? "#C8702A");
+    const color = filter === "All" ? colors.primary : (personalityColor[filter] ?? colors.primary);
     const emoji = filter === "All" ? "💬" : (personalityEmoji[filter] ?? "💬");
     return (
       <TouchableOpacity
         key={filter}
         style={[
           styles.pill,
-          isActive
-            ? { backgroundColor: color, borderColor: color }
-            : { backgroundColor: "#FFF8F0", borderColor: "#E8D0B8" },
+          isActive ? { backgroundColor: color, borderColor: color } : styles.pillInactive,
         ]}
         onPress={() => setActiveFilter(filter)}
         activeOpacity={0.8}
       >
         <Text style={styles.pillEmoji}>{filter === "All" ? "" : emoji}</Text>
-        <Text style={[styles.pillText, { color: isActive ? "#FFF" : "#7A5000" }]}>
+        <Text style={[styles.pillText, isActive ? styles.pillTextActive : styles.pillTextInactive]}>
           {filter === "All" ? "All" : displayLabel(filter)}
         </Text>
       </TouchableOpacity>
@@ -238,7 +250,7 @@ export default function ConversationHistoryScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
+        <View style={styles.headerMiddle}>
           <Text style={styles.headerTitle}>Conversations</Text>
           <Text style={styles.headerSub}>
             {filtered.length} {filtered.length === 1 ? "chat" : "chats"}
@@ -263,7 +275,7 @@ export default function ConversationHistoryScreen() {
       <View style={styles.listWrapper}>
         {loading ? (
           <View style={styles.center}>
-            <ActivityIndicator size="large" color="#C8702A" />
+            <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : filtered.length === 0 ? (
           <View style={styles.center}>
@@ -289,7 +301,7 @@ export default function ConversationHistoryScreen() {
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
+            ItemSeparatorComponent={ListSeparator}
           />
         )}
       </View>
@@ -305,7 +317,7 @@ export default function ConversationHistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#C8702A" },
+  safe: { flex: 1, backgroundColor: colors.primary },
 
   header: {
     flexDirection: "row",
@@ -313,7 +325,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
-    backgroundColor: "#C8702A",
+    backgroundColor: colors.primary,
     gap: 12,
   },
   backBtn: {
@@ -324,17 +336,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  backIcon: { color: "#FFF8F0", fontSize: 20, fontWeight: "700" },
+  backIcon: { color: colors.onPrimary, fontSize: 20, fontWeight: "700" },
+  headerMiddle: { flex: 1 },
   headerTitle: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#FFF8F0",
+    color: colors.onPrimary,
     letterSpacing: 0.3,
   },
-  headerSub: { fontSize: 12, color: "#F5D9B8", marginTop: 2 },
+  headerSub: { fontSize: 12, color: colors.onPrimaryMuted, marginTop: 2 },
 
   pillsWrapper: {
-    backgroundColor: "#FDF6EC",
+    backgroundColor: colors.background,
     paddingTop: 14,
   },
   pillsRow: {
@@ -353,12 +366,15 @@ const styles = StyleSheet.create({
     gap: 4,
     marginRight: 8,
   },
+  pillInactive: { backgroundColor: colors.onPrimary, borderColor: colors.borderStrong },
   pillEmoji: { fontSize: 13 },
   pillText: { fontSize: 13, fontWeight: "600" },
+  pillTextActive: { color: "#FFF" },
+  pillTextInactive: { color: "#7A5000" },
 
   listWrapper: {
     flex: 1,
-    backgroundColor: "#FDF6EC",
+    backgroundColor: colors.background,
   },
   listContent: {
     padding: 16,
@@ -368,11 +384,11 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFF8F0",
+    backgroundColor: colors.onPrimary,
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: "#F0DCC8",
+    borderColor: colors.border,
     gap: 12,
   },
   avatar: {
@@ -392,7 +408,7 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     borderWidth: 1.5,
-    borderColor: "#FFF8F0",
+    borderColor: colors.onPrimary,
   },
   cardContent: { flex: 1, minWidth: 0 },
   cardTop: {
@@ -404,20 +420,20 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#3D2000",
+    color: colors.text,
     flex: 1,
     marginRight: 8,
   },
-  cardTime: { fontSize: 11, color: "#B0937A" },
+  cardTime: { fontSize: 11, color: colors.textMuted },
   cardBottom: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
   },
   cardPersonality: { fontSize: 12, fontWeight: "600" },
-  cardDot: { fontSize: 12, color: "#C0A080" },
-  cardPreview: { fontSize: 12, color: "#9E7C63", flex: 1 },
-  cardArrow: { fontSize: 22, color: "#C8702A", fontWeight: "700" },
+  cardDot: { fontSize: 12, color: colors.textFaint },
+  cardPreview: { fontSize: 12, color: colors.textSubtle, flex: 1 },
+  cardArrow: { fontSize: 22, color: colors.primary, fontWeight: "700" },
 
   separator: { height: 8 },
 
@@ -431,31 +447,31 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#3D2000",
+    color: colors.text,
     marginBottom: 6,
     textAlign: "center",
   },
   emptySub: {
     fontSize: 13,
-    color: "#9E7C63",
+    color: colors.textSubtle,
     textAlign: "center",
     lineHeight: 20,
     marginBottom: 24,
   },
   emptyBtn: {
-    backgroundColor: "#C8702A",
+    backgroundColor: colors.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 14,
   },
-  emptyBtnText: { color: "#FFF8F0", fontWeight: "700", fontSize: 14 },
+  emptyBtnText: { color: colors.onPrimary, fontWeight: "700", fontSize: 14 },
 
   hintBar: {
-    backgroundColor: "#FDF6EC",
+    backgroundColor: colors.background,
     borderTopWidth: 1,
-    borderTopColor: "#F0DCC8",
+    borderTopColor: colors.border,
     paddingVertical: 8,
     alignItems: "center",
   },
-  hintText: { fontSize: 11, color: "#B0937A" },
+  hintText: { fontSize: 11, color: colors.textMuted },
 });

@@ -8,6 +8,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { RootStackParamList } from "../navigation/AppNavigator";
+import { colors } from "../theme";
+
+// ✅ Typed navigation
+type PolicyNavProp = NativeStackNavigationProp<RootStackParamList>;
 
 const TABS = [
   { id: "terms", label: "Terms" },
@@ -26,9 +32,9 @@ const POLICIES: Record<string, { title: string; sections: { heading: string; bod
       { heading: "3. Medical Disclaimer", body: "SafeSpace does not provide medical, psychological, or psychiatric services.\n\n• Do not rely on the app for crisis situations.\n• In case of emergency, contact local emergency services or a qualified professional immediately." },
       { heading: "4. Eligibility", body: "Minimum age: 15 years. Users under 18 must have parental or legal guardian consent.\n\nBy using the app, you confirm that you meet these requirements." },
       { heading: "5. User Accounts", body: "SafeSpace uses Firebase for authentication.\n\n• Users must provide accurate information (e.g., email).\n• You are responsible for maintaining account confidentiality.\n• We reserve the right to suspend or terminate accounts for violations." },
-      { heading: "6. Data & Privacy", body: "• We collect and store email addresses only for authentication.\n• Conversations are not stored, monitored, or reviewed.\n• Basic usage logs may be collected for system performance and security." },
+      { heading: "6. Data & Privacy", body: "• We collect and store email addresses only for authentication.\n• Conversations are stored securely and are used only to power your in-app chat history. They are never sold, shared with third parties, or read by humans.\n• Basic usage logs may be collected for system performance and security." },
       { heading: "7. Subscription & Payments", body: "Payments are processed via Razorpay.\n\nPlans:\n• Pro Plan: ₹179/month or ₹699/year\n• Ultimate Plan: ₹199/month or ₹799/year\n\nRefund Policy:\n• Refunds are allowed within 24 hours of purchase only.\n• After 24 hours, no refunds will be issued.\n\nSafeSpace reserves the right to modify pricing at any time." },
-      { heading: "8. Usage Limits", body: "• Message limits apply based on subscription tier.\n• Messages are restored gradually based on the user's plan.\n• Limits and refill rates may be updated without prior notice." },
+      { heading: "8. Usage Limits", body: "• Free Plan: 20 messages, refreshes every 5 hours.\n• Pro Plan: 80 messages, refreshes every 4 hours.\n• Ultimate Plan: 200 messages, refreshes every 2 hours.\n• Limits and refill rates may be updated without prior notice." },
       { heading: "9. Acceptable Use", body: "Users agree NOT to:\n• Use abusive, harmful, or offensive language.\n• Attempt to exploit or manipulate the AI system.\n• Use the app for illegal or unethical activities.\n\nViolation may result in account suspension or permanent ban." },
       { heading: "10. Crisis & Self-Harm Handling", body: "If a user expresses self-harm or crisis-related intent:\n• The app will display emergency helpline numbers and guidance.\n• SafeSpace does not intervene, monitor, or escalate situations.\n\nUsers are solely responsible for seeking real-world help." },
       { heading: "11. Limitation of Liability", body: "SafeSpace is provided \"as is\" without warranties of any kind.\n\nWe are not liable for:\n• Emotional distress\n• Decisions made based on AI responses\n• Any direct or indirect damages arising from use of the app" },
@@ -43,12 +49,12 @@ const POLICIES: Record<string, { title: string; sections: { heading: string; bod
     sections: [
       { heading: "Effective Date", body: "This Privacy Policy is effective as of the date of your first use of SafeSpace." },
       { heading: "1. Introduction", body: "SafeSpace is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information.\n\nBy using the app, you agree to the terms outlined in this Privacy Policy." },
-      { heading: "2. Information We Collect", body: "a. Account Information\nWe collect your email address via authentication, handled using Firebase.\n\nb. Usage Data\nWe may collect limited technical data such as:\n• Device type\n• App performance logs\n• Error reports\n\nc. Conversations\nSafeSpace does NOT store, read, or monitor user conversations. Messages are processed in real-time and are not retained on our servers." },
+      { heading: "2. Information We Collect", body: "a. Account Information\nWe collect your email address via authentication, handled using Firebase.\n\nb. Usage Data\nWe may collect limited technical data such as:\n• Device type\n• App performance logs\n• Error reports\n\nc. Conversations\nConversations are stored securely and are used only to power your in-app chat history. They are never sold, shared with third parties, or read by humans. You can delete any conversation at any time from the Conversation History screen. To delete your account and all associated data, contact us at emotionalsupapp1912@gmail.com." },
       { heading: "3. How We Use Your Information", body: "We use collected data to:\n• Provide and maintain the service\n• Authenticate users\n• Improve performance and fix bugs\n• Ensure security and prevent misuse\n\nWe do NOT:\n• Sell your data\n• Share personal data with advertisers\n• Use conversations for training or analysis" },
       { heading: "4. Payments", body: "All payments are securely processed through Razorpay.\n\n• We do not store your card or payment details.\n• Payment data is handled directly by the payment provider." },
       { heading: "5. Data Sharing", body: "We do not sell or rent your personal data.\n\nWe may share limited data only:\n• With service providers (e.g., Firebase) for app functionality\n• If required by law or legal process" },
       { heading: "6. Data Security", body: "We implement reasonable security measures to protect your information. However, no system is 100% secure. You use the app at your own risk." },
-      { heading: "7. Data Retention", body: "• Email data is stored as long as your account is active.\n• Since conversations are not stored, no conversation history is retained." },
+      { heading: "7. Data Retention", body: "• Email data is stored as long as your account is active.\n• Conversation history is stored securely until you delete it (via the app) or request account deletion." },
       { heading: "8. Your Rights", body: "Depending on applicable laws in India, you may:\n• Request access to your data\n• Request deletion of your account and associated data\n• Contact us for any privacy-related concerns" },
       { heading: "9. Children's Privacy", body: "Minimum age: 15 years. Users under 18 must have parental or guardian consent.\n\nWe do not knowingly collect data from users without required consent." },
       { heading: "10. Third-Party Services", body: "SafeSpace relies on:\n• Firebase (authentication & backend)\n• Razorpay (payments)\n\nThese services have their own privacy policies." },
@@ -92,7 +98,7 @@ const POLICIES: Record<string, { title: string; sections: { heading: string; bod
 };
 
 export default function PolicyScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<PolicyNavProp>(); // ✅ Now properly typed
   const route = useRoute<any>();
   const initialTab = route.params?.tab ?? "terms";
   const [activeTab, setActiveTab] = useState<string>(initialTab);
@@ -107,7 +113,7 @@ export default function PolicyScreen() {
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{policy.title}</Text>
-        <View style={{ width: 36 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* Tabs */}
@@ -151,7 +157,7 @@ export default function PolicyScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#C8702A" },
+  safe: { flex: 1, backgroundColor: colors.primary },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -159,46 +165,47 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 16,
-    backgroundColor: "#C8702A",
+    backgroundColor: colors.primary,
   },
   backBtn: {
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: "rgba(255,255,255,0.2)",
     justifyContent: "center", alignItems: "center",
   },
-  backIcon: { color: "#FFF8F0", fontSize: 18, fontWeight: "700" },
+  backIcon: { color: colors.onPrimary, fontSize: 18, fontWeight: "700" },
+  headerSpacer: { width: 36 },
   headerTitle: {
-    fontSize: 17, fontWeight: "700", color: "#FFF8F0",
+    fontSize: 17, fontWeight: "700", color: colors.onPrimary,
     flex: 1, textAlign: "center", marginHorizontal: 8,
   },
   tabsRow: {
     flexDirection: "row",
-    backgroundColor: "#FDF6EC",
+    backgroundColor: colors.background,
     paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12,
     gap: 8,
   },
   tab: {
     flex: 1, paddingVertical: 10, borderRadius: 12,
-    alignItems: "center", backgroundColor: "#F0DCC8",
+    alignItems: "center", backgroundColor: colors.border,
   },
-  tabActive: { backgroundColor: "#C8702A" },
-  tabText: { fontSize: 12, fontWeight: "600", color: "#B0937A" },
-  tabTextActive: { color: "#FFF8F0" },
-  scroll: { flex: 1, backgroundColor: "#FDF6EC" },
+  tabActive: { backgroundColor: colors.primary },
+  tabText: { fontSize: 12, fontWeight: "600", color: colors.textMuted },
+  tabTextActive: { color: colors.onPrimary },
+  scroll: { flex: 1, backgroundColor: colors.background },
   scrollContent: { padding: 20, paddingBottom: 48 },
   section: {
-    marginBottom: 16, backgroundColor: "#FFF8F0",
+    marginBottom: 16, backgroundColor: colors.onPrimary,
     borderRadius: 14, padding: 16,
-    borderWidth: 1, borderColor: "#F0DCC8",
+    borderWidth: 1, borderColor: colors.border,
   },
   sectionHeading: {
-    fontSize: 14, fontWeight: "700", color: "#C8702A", marginBottom: 8,
+    fontSize: 14, fontWeight: "700", color: colors.primary, marginBottom: 8,
   },
-  sectionBody: { fontSize: 14, color: "#3D2000", lineHeight: 22 },
+  sectionBody: { fontSize: 14, color: colors.text, lineHeight: 22 },
   contactBox: {
-    backgroundColor: "#F0DCC8", borderRadius: 14,
+    backgroundColor: colors.border, borderRadius: 14,
     padding: 16, alignItems: "center", marginTop: 8,
   },
-  contactText: { fontSize: 13, color: "#7A4A1A", textAlign: "center", lineHeight: 22 },
-  contactEmail: { fontWeight: "700", color: "#C8702A" },
+  contactText: { fontSize: 13, color: colors.primaryDarker, textAlign: "center", lineHeight: 22 },
+  contactEmail: { fontWeight: "700", color: colors.primary },
 });
