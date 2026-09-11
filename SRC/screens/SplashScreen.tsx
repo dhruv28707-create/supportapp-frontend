@@ -187,7 +187,7 @@ export default function SplashScreen({ onFinish }: Props) {
   const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#C8702A',
+    backgroundColor: '#000000',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
