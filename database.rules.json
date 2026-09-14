@@ -1,16 +1,16 @@
 {
   "rules": {
-    ".read": "auth != null && (auth.token.email == 'piyush28707@gmail.com' || auth.token.email == 'developer2@safespace.local')",
-    ".write": "auth != null && (auth.token.email == 'prachibhatt1972007@gmail.com' || auth.token.email == 'developer2@safespace.local')",
+    ".read": "auth != null",
+    ".write": "auth != null",
     "users": {
       "$uid": {
-        ".read": "auth != null && ($uid === auth.uid || auth.token.email == 'developer1@safespace.local' || auth.token.email == 'developer2@safespace.local')",
-        ".write": "auth != null && ($uid === auth.uid || auth.token.email == 'developer1@safespace.local' || auth.token.email == 'developer2@safespace.local')",
+        ".read": "auth != null && ($uid === auth.uid)",
+        ".write": "auth != null && ($uid === auth.uid)",
         "role": {
-          ".validate": "newData.val() !== 'developer' || (auth != null && (auth.token.email == 'developer1@safespace.local' || auth.token.email == 'developer2@safespace.local'))"
+          ".validate": "newData.val() !== 'developer'"
         },
         "isDeveloper": {
-          ".validate": "newData.val() !== true || (auth != null && (auth.token.email == 'developer1@safespace.local' || auth.token.email == 'developer2@safespace.local'))"
+          ".validate": "newData.val() !== true"
         }
       }
     }

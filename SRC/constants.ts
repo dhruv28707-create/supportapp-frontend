@@ -2,8 +2,8 @@ import { RAZORPAY_KEY_ID as RAZORPAY_KEY_ID_SECRET, GOOGLE_WEB_CLIENT_ID as GOOG
 
 export const BACKEND_URL = 'https://supportapp-backend.vercel.app';
 
-// Loaded from ./secrets (gitignored). Fill in secrets.ts locally.
-// Empty values fail loudly at runtime instead of silently using a live key.
+// Re-exported from ./secrets (gitignored). Loaded from env vars at build time.
+// Empty/placeholder values fail loudly at runtime instead of silently using a live key.
 export const RAZORPAY_KEY_ID = RAZORPAY_KEY_ID_SECRET;
 export const GOOGLE_WEB_CLIENT_ID = GOOGLE_WEB_CLIENT_ID_SECRET;
 

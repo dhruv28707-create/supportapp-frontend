@@ -10,6 +10,8 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    // God account: add the owner emails you want to retain admin access here.
+    // If you rely on role flags instead, replace this function accordingly.
     function isGodAccount() {
       return signedIn()
         && request.auth.token.email in [
@@ -82,7 +84,7 @@ service cloud.firestore {
     }
 
     match /payments/{orderId} {
-      allow read: if signedIn();
+      allow read: if isGodAccount() || (signedIn() && resource.data.uid == request.auth.uid);
       allow write: if isGodAccount();
     }
 

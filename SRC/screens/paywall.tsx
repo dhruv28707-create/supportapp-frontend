@@ -19,6 +19,26 @@ import { RAZORPAY_KEY_ID } from "../constants";
 import { apiFetch } from "../api/client";
 import { colors } from "../theme";
 
+/**
+ * Safe fallback for the Razorpay key_id.
+ *
+ * The backend order endpoint should always return keyId. If it doesn't,
+ * we only fall back to the locally configured RAZORPAY_KEY_ID when it looks
+ * like a real key (starts with rzp_live_ / rzp_test_). If it is a placeholder
+ * or unset, we do NOT silently ship a stale/placeholder value into Razorpay —
+ * we throw so the failure is visible instead of confusing.
+ */
+function safeRazorpayKey(): string {
+  const key = RAZORPAY_KEY_ID;
+  if (/^rzp_(live|test)_/.test(key)) {
+    return key;
+  }
+  throw new Error(
+    "Razorpay key_id is not configured. Set RAZORPAY_KEY_ID in your environment " +
+    "(or ./secrets.ts locally) before opening the checkout."
+  );
+}
+
 const PLANS = {
   pro: {
     name: "Pro",
@@ -121,7 +141,7 @@ export default function PaywallScreen() {
       const options = {
         description: `${PLANS[planKey].name} Plan – ${billingCycle === "monthly" ? "Monthly" : "Yearly"}`,
         currency: orderData.currency || "INR",
-        key: orderData.keyId || orderData.key || RAZORPAY_KEY_ID,
+        key: orderData.keyId || orderData.key || safeRazorpayKey(),
         amount: orderData.amount,
         order_id: orderData.orderId,
         name: "SafeSpace",
