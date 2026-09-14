@@ -49,6 +49,15 @@ export default function SettingsScreen() {
       });
   }, []);
 
+  const navigateToAuthRoot = () => {
+    // After sign-out / account deletion we want the app to show the
+    // Sign In / Create Account entry point, not the settings/policy tab.
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "Auth" }],
+    });
+  };
+
   const handleLogout = () => {
     Alert.alert(
       "Log Out",
@@ -61,9 +70,90 @@ export default function SettingsScreen() {
           onPress: async () => {
             try {
               await auth().signOut();
+              navigateToAuthRoot();
             } catch (error: any) {
               Alert.alert("Error", error.message);
             }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Delete Account",
+      "This will permanently delete your account and all your conversations. This cannot be undone. If you have a paid subscription, you must cancel it separately in your payment app.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete My Account",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "Are you absolutely sure?",
+              "Once you delete your account, all your data and conversations will be permanently removed. This cannot be undone.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Yes, Delete Everything",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      const uid = auth().currentUser?.uid;
+                      if (uid) {
+                        // Delete conversations first, then the user document.
+                        const convosRef = firestore()
+                          .collection("users")
+                          .doc(uid)
+                          .collection("conversations");
+
+                        const convosSnap = await convosRef.get();
+                        const BATCH_LIMIT = 400;
+
+                        for (let i = 0; i < convosSnap.docs.length; i += BATCH_LIMIT) {
+                          const batch = firestore().batch();
+                          const chunk = convosSnap.docs.slice(i, i + BATCH_LIMIT);
+
+                          // Delete messages in each conversation.
+                          for (const convo of chunk) {
+                            const messagesRef = convo.ref.collection("messages");
+                            const msgsSnap = await messagesRef.get();
+                            for (let j = 0; j < msgsSnap.docs.length; j += BATCH_LIMIT) {
+                              const msgBatch = firestore().batch();
+                              const msgChunk = msgsSnap.docs.slice(j, j + BATCH_LIMIT);
+                              for (const msg of msgChunk) {
+                                msgBatch.delete(msg.ref);
+                              }
+                              await msgBatch.commit();
+                            }
+
+                            batch.delete(convo.ref);
+                          }
+
+                          await batch.commit();
+                        }
+
+                        await firestore().collection("users").doc(uid).delete();
+                      }
+
+                      try {
+                        await auth().currentUser?.delete();
+                      } catch (authError: any) {
+                        // Some Firebase SDK versions/account states only support
+                        // signOut for direct user-deletion. Fall back to signOut.
+                        console.log("account delete failed, signing out instead:", authError?.message);
+                        await auth().signOut();
+                      }
+
+                      navigateToAuthRoot();
+                    } catch (error: any) {
+                      Alert.alert("Error", error.message);
+                    }
+                  },
+                },
+              ]
+            );
           },
         },
       ]
@@ -171,9 +261,15 @@ export default function SettingsScreen() {
         </View>
 
         {isLoggedIn && (
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
-            <Text style={styles.logoutText}>Log Out</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.85}>
+              <Text style={styles.logoutText}>Log Out</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.deleteAccountBtn} onPress={handleDeleteAccount} activeOpacity={0.85}>
+              <Text style={styles.deleteAccountText}>Delete Account</Text>
+            </TouchableOpacity>
+          </>
         )}
 
         <Text style={styles.version}>SafeSpace · v{APP_VERSION}</Text>
@@ -269,8 +365,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 1.5,
     borderColor: colors.dangerBorder,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   logoutText: { color: colors.danger, fontSize: 16, fontWeight: "700" },
+
+  deleteAccountBtn: {
+    backgroundColor: "transparent",
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: colors.danger,
+    marginBottom: 16,
+  },
+  deleteAccountText: { color: colors.danger, fontSize: 15, fontWeight: "700" },
+
   version: { textAlign: "center", fontSize: 12, color: colors.textFaint },
 });

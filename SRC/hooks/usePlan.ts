@@ -81,13 +81,29 @@ export function usePlan() {
   }, [refreshPlan]);
 
   // Refresh when the app returns to the foreground (e.g. plan refilled).
+  // Debounce repeated 'active' events so a rapid state flutter doesn't hammer
+  // the backend.
   useEffect(() => {
+    let scheduled: ReturnType<typeof setTimeout> | null = null;
+
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        refreshPlan();
+      if (state !== 'active') return;
+
+      if (scheduled) {
+        clearTimeout(scheduled);
       }
+      scheduled = setTimeout(() => {
+        scheduled = null;
+        refreshPlan().catch((e) => console.log('usePlan foreground refresh error:', e));
+      }, 1500);
     });
-    return () => subscription.remove();
+
+    return () => {
+      subscription.remove();
+      if (scheduled) {
+        clearTimeout(scheduled);
+      }
+    };
   }, [refreshPlan]);
 
   return { ...planInfo, loading, refreshPlan };

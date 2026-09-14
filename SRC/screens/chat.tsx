@@ -491,14 +491,22 @@ export default function ChatScreen() {
     };
   }, [conversationId, personality, themeKey, religionSubType]);
 
-  const crisisKeywords = [
+  const crisisPhrases = [
     "want to die", "kill myself", "end my life", "suicide",
     "don't want to live", "no reason to live", "better off dead",
     "harm myself", "hurt myself", "can't go on", "give up on life",
-  ];
+  ] as const;
 
-  const isCrisisMessage = (text: string) =>
-    crisisKeywords.some((k) => text.toLowerCase().includes(k));
+  /**
+   * Simple crisis-signal heuristic. It is intentionally broad so we err on the
+   * side of showing help. It is client-only and only controls the in-app crisis
+   * popup — the backend is the source of truth for any serious safeguards.
+   */
+  const isCrisisMessage = (text: string): boolean => {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    return crisisPhrases.some((phrase) => lower.includes(phrase));
+  };
 
   const showCrisisSupport = () => {
     const userName = userProfile?.firstName ?? "friend";
