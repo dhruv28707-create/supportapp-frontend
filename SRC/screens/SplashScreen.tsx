@@ -5,7 +5,20 @@ import {
   Easing,
   Image,
   StyleSheet,
+  Text,
+  View,
 } from 'react-native';
+
+// Guard against missing logo asset — require.resolve would throw at bundle time.
+// We use a try/catch so the splash falls back to a text logo instead of crashing.
+let logoSource: { uri: string } | Exclude<ReturnType<typeof require>, null> | null = null;
+
+try {
+  logoSource = require('../../assets/bootsplash/logo.png');
+} catch {
+  // Fallback: render a text logo instead.
+  logoSource = { uri: '' };
+}
 
 const { width, height } = Dimensions.get('window');
 
@@ -52,6 +65,8 @@ export default function SplashScreen({ onFinish }: Props) {
   const screenOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    const hasLogo = logoSource !== null && logoSource !== undefined;
+    const splashDuration = hasLogo ? 3400 : 1800;
     const ashFall = ashParticles.map(particle =>
       Animated.parallel([
         Animated.sequence([
@@ -82,7 +97,7 @@ export default function SplashScreen({ onFinish }: Props) {
     Animated.parallel([
       Animated.stagger(16, ashFall),
       Animated.sequence([
-        Animated.delay(720),
+        Animated.delay(hasLogo ? 720 : 400),
         Animated.parallel([
           Animated.timing(logoOpacity, {
             toValue: 1,
@@ -111,7 +126,7 @@ export default function SplashScreen({ onFinish }: Props) {
             }),
           ]),
         ]),
-        Animated.delay(780),
+        Animated.delay(hasLogo ? 780 : 400),
         Animated.timing(screenOpacity, {
           toValue: 0,
           duration: 520,
@@ -124,6 +139,11 @@ export default function SplashScreen({ onFinish }: Props) {
         onFinish();
       }
     });
+
+    // Safety net: if the animation somehow doesn't finish (e.g. native driver
+    // issue on a specific device), still advance after a hard timeout.
+    const safetyTimer = setTimeout(() => onFinish(), splashDuration + 500);
+    return () => clearTimeout(safetyTimer);
   }, [
     ashParticles,
     logoOpacity,
@@ -174,11 +194,18 @@ export default function SplashScreen({ onFinish }: Props) {
             transform: [{ translateY: logoTranslateY }, { scale: logoScale }],
           },
         ]}>
-        <Image
-          source={require('../../assets/bootsplash/logo.png')}
-          style={styles.logo}
-          resizeMode="contain"
-        />
+        logoSource ? (
+          <Image
+            source={logoSource}
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        ) : (
+          <View style={styles.fallbackLogo}>
+            <Text style={styles.fallbackLogoText}>SafeSpace</Text>
+            <Text style={styles.fallbackTagline}>You are not alone</Text>
+          </View>
+        )
       </Animated.View>
     </Animated.View>
   );
@@ -207,5 +234,21 @@ export default function SplashScreen({ onFinish }: Props) {
   logo: {
     width: '100%',
     height: '100%',
+  },
+  fallbackLogo: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fallbackLogoText: {
+    fontSize: 38,
+    fontWeight: '800',
+    color: '#F5D9B8',
+    letterSpacing: 1,
+  },
+  fallbackTagline: {
+    fontSize: 14,
+    color: '#C8702A',
+    marginTop: 6,
+    letterSpacing: 0.3,
   },
 });

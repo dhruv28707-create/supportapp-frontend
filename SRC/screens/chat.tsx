@@ -20,7 +20,7 @@ import auth from "@react-native-firebase/auth";
 import { useToken } from "../context/TokenContext";
 import { CRISIS_HELPLINES } from "../constants";
 import { apiFetch } from "../api/client";
-import { useCountdown, formatCountdown, formatRefreshIn } from "../hooks/useCountdown";
+import { useCountdown, formatCountdown, formatRefreshIn, useOnlineStatus } from "../hooks/useCountdown";
 import { colors } from "../theme";
 
 type ChatNavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -690,6 +690,7 @@ export default function ChatScreen() {
   const limitReached = isLimitReached || limitSignal.hit;
   const countdownTarget = limitSignal.refreshAt ?? nextRefreshAt;
   const secondsLeft = useCountdown(countdownTarget);
+  const isOnline = useOnlineStatus();
 
   const clearedExpiredSignal = useRef(false);
   useEffect(() => {
@@ -773,6 +774,15 @@ export default function ChatScreen() {
         </TouchableOpacity>
       </View>
 
+      {!isOnline && (
+        <View style={[styles.offlineBanner, { borderColor: theme.inputBorder }]}>
+          <Text style={[styles.offlineIcon]}>📶</Text>
+          <Text style={[styles.offlineText, { color: theme.typingColor }]}>
+            You're offline. Messages will be sent when you reconnect.
+          </Text>
+        </View>
+      )}
+
       <View style={[styles.inner, { marginBottom: keyboardHeight }]}>
         <FlatList
           ref={flatListRef}
@@ -795,14 +805,14 @@ export default function ChatScreen() {
         )}
 
         {serviceError?.hit && (
-          <View style={[styles.limitBanner, { borderColor: "#E53E3E", backgroundColor: "#FFF5F5" }]}>
+          <View style={[styles.limitBanner, styles.serviceErrorBanner]}>
             <View style={styles.limitBannerRow}>
               <Text style={styles.limitEmoji}>⚠️</Text>
               <View style={styles.limitBannerCopy}>
-                <Text style={[styles.limitTitle, { color: "#C53030" }]}>
+                <Text style={[styles.limitTitle, styles.serviceErrorTitle]}>
                   AI Service Unavailable (503)
                 </Text>
-                <Text style={{ fontSize: 12, color: "#9B2C2C" }}>
+                <Text style={styles.serviceErrorSub}>
                   Temporary error. Quota was NOT consumed.
                 </Text>
               </View>
@@ -959,6 +969,20 @@ const styles = StyleSheet.create({
   userText: { color: colors.onPrimary },
   typingContainer: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 6 },
   typingText: { marginLeft: 8, fontSize: 13, fontStyle: "italic" },
+  offlineBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: colors.onPrimary,
+    borderWidth: 1,
+    gap: 8,
+  },
+  offlineIcon: { fontSize: 16 },
+  offlineText: { fontSize: 12, fontWeight: "500" },
   quotaBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -986,6 +1010,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  serviceErrorBanner: { borderColor: '#E53E3E', backgroundColor: '#FFF5F5' },
+  serviceErrorTitle: { color: '#C53030' },
+  serviceErrorSub: { fontSize: 12, color: '#9B2C2C' },
   limitBannerRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
   limitEmoji: { fontSize: 22 },
   limitBannerCopy: { flex: 1 },

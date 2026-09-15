@@ -17,7 +17,7 @@ import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-si
 import { useNavigation } from "@react-navigation/native";
 import { colors, radius, spacing, shadow, typography } from "../theme";
 
-export default function LoginScreen({ navigation }: any) {
+export default function LoginScreen() {
   const nav = useNavigation<any>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

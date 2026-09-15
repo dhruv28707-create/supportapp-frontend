@@ -17,7 +17,7 @@ import { useNavigation } from "@react-navigation/native";
 import { SUPPORT_EMAIL } from "../constants";
 import { colors, radius, spacing, shadow, typography } from "../theme";
 
-export default function RegisterScreen({ navigation }: any) {
+export default function RegisterScreen() {
   const nav = useNavigation<any>();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");

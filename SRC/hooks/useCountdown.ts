@@ -56,3 +56,42 @@ export function formatRefreshIn(totalSeconds: number): string {
   const h = Math.floor(m / 60);
   return `${h}h ${m % 60}m`;
 }
+
+/**
+ * Returns true when the device appears to be offline.
+ *
+ * Uses a lightweight HEAD-style check on the backend health endpoint.
+ * Results are cached for `cacheMs` so a flaky connection doesn't cause
+ * the indicator to flicker on every keystroke or scroll event.
+ */
+export function useOnlineStatus(cacheMs = 10_000): boolean {
+  const [online, setOnline] = useState(true);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const check = async () => {
+      try {
+        const controller = new AbortController();
+        timer = setTimeout(() => controller.abort(), 3000);
+        const res = await fetch('https://supportapp-backend.vercel.app/api/health', {
+          method: 'HEAD',
+          signal: controller.signal,
+        });
+        setOnline(res.ok);
+      } catch {
+        setOnline(false);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    check();
+    timer = setInterval(check, cacheMs);
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [cacheMs]);
+
+  return online;
+}

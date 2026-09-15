@@ -208,11 +208,11 @@ export default function LobbyScreen() {
       const rc = RELIGION_COLORS[selectedReligion] ?? RELIGION_COLORS.General;
       return { bg: rc.activeBg, border: rc.border, labelColor: rc.labelColor };
     }
-    const c = PERSONALITY_COLORS[id] ?? PERSONALITY_COLORS.Custom;
+    const cardColors = PERSONALITY_COLORS[id] ?? PERSONALITY_COLORS.Custom;
     return {
-      bg: isSelected ? c.selectedBg : c.bg,
-      border: isSelected ? c.border : "transparent",
-      labelColor: isSelected ? c.selectedLabelColor : c.labelColor,
+      bg: isSelected ? cardColors.selectedBg : cardColors.bg,
+      border: isSelected ? cardColors.border : "transparent",
+      labelColor: isSelected ? cardColors.selectedLabelColor : cardColors.labelColor,
     };
   };
 
@@ -263,16 +263,16 @@ export default function LobbyScreen() {
           {personalities.map((p) => {
             const isSelected = selected === p.id;
             const isLocked = !unlockedPersonalities.includes(p.id);
-            const colors = getCardColors(p.id, isSelected);
+            const cardColors = getCardColors(p.id, isSelected);
 
-            const cardColors = { backgroundColor: colors.bg, borderColor: colors.border };
+            const cardStyle = { backgroundColor: cardColors.bg, borderColor: cardColors.border };
 
             return (
               <TouchableOpacity
                 key={p.id}
                 style={[
                   styles.card,
-                  cardColors,
+                  cardStyle,
                   isSelected && styles.cardSelected,
                   isLocked && styles.cardLocked,
                 ]}
@@ -285,7 +285,7 @@ export default function LobbyScreen() {
                   </View>
                 )}
                 <Text style={styles.cardEmoji}>{p.emoji}</Text>
-                <Text style={[styles.cardLabel, { color: colors.labelColor }]}>
+                <Text style={[styles.cardLabel, { color: cardColors.labelColor }]}>
                   {p.label}
                 </Text>
                 {isSelected && p.id === "Guide" && (

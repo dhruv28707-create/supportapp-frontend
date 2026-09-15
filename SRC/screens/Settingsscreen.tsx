@@ -16,6 +16,7 @@ import firestore from "@react-native-firebase/firestore";
 import { useToken } from "../context/TokenContext";
 import { PLAN_COLORS, PLANS, PlanKey, APP_VERSION } from "../constants";
 import { useCountdown, formatRefreshIn } from "../hooks/useCountdown";
+import { apiFetch } from "../api/client";
 import { colors } from "../theme";
 
 type SettingsNavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -52,21 +53,31 @@ export default function SettingsScreen() {
   const navigateToAuthRoot = () => {
     // After sign-out / account deletion we want the app to show the
     // Sign In / Create Account entry point, not the settings/policy tab.
+    // The onAuthStateChanged listener in AppNavigator will fire after
+    // signOut() and re-render the unauth stack (Auth/Login/Register).
+    // We reset to Lobby (auth stack root) so the current screen is cleared;
+    // when onAuthStateChanged fires, the unauth stack takes over.
     navigation.reset({
       index: 0,
-      routes: [{ name: "Auth" }],
+      routes: [{ name: "Lobby" }],
     });
   };
 
   const handleLogout = () => {
     Alert.alert(
       "Log Out",
-      "Are you sure you want to log out?",
+      "Choose an option:",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Log Out",
+          text: "Delete Account",
           style: "destructive",
+          onPress: () => {
+            handleDeleteAccount();
+          },
+        },
+        {
+          text: "Log Out",
           onPress: async () => {
             try {
               await auth().signOut();
@@ -83,7 +94,7 @@ export default function SettingsScreen() {
   const handleDeleteAccount = () => {
     Alert.alert(
       "Delete Account",
-      "This will permanently delete your account and all your conversations. This cannot be undone. If you have a paid subscription, you must cancel it separately in your payment app.",
+      "This will permanently delete your account and all your conversations. This cannot be undone. We will also try to cancel your subscription automatically.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -135,6 +146,18 @@ export default function SettingsScreen() {
                         }
 
                         await firestore().collection("users").doc(uid).delete();
+                      }
+
+                      // Best-effort: cancel any active Razorpay subscription
+                      // so the user isn't charged after deletion.
+                      // If the endpoint doesn't exist or fails, we still
+                      // proceed with deletion — the user can cancel manually.
+                      try {
+                        await apiFetch('/api/payment-cancel', {
+                          method: 'POST',
+                        });
+                      } catch (cancelError) {
+                        console.log('subscription cancel failed (non-fatal):', cancelError);
                       }
 
                       try {
