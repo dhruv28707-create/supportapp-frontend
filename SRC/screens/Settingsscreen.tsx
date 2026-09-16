@@ -111,64 +111,44 @@ export default function SettingsScreen() {
                   style: "destructive",
                   onPress: async () => {
                     try {
-                      const uid = auth().currentUser?.uid;
-                      if (uid) {
-                        // Delete conversations first, then the user document.
-                        const convosRef = firestore()
-                          .collection("users")
-                          .doc(uid)
-                          .collection("conversations");
+                      // 1. Cancel subscription first (idempotent — safe to always call)
+                      await apiFetch('/api/payment-cancel', {
+                        method: 'POST',
+                      }).catch(() => {});
 
-                        const convosSnap = await convosRef.get();
-                        const BATCH_LIMIT = 400;
+                      // 2. Delete the account server-side
+                      const res = await apiFetch('/api/account', {
+                        method: 'DELETE',
+                      });
 
-                        for (let i = 0; i < convosSnap.docs.length; i += BATCH_LIMIT) {
-                          const batch = firestore().batch();
-                          const chunk = convosSnap.docs.slice(i, i + BATCH_LIMIT);
-
-                          // Delete messages in each conversation.
-                          for (const convo of chunk) {
-                            const messagesRef = convo.ref.collection("messages");
-                            const msgsSnap = await messagesRef.get();
-                            for (let j = 0; j < msgsSnap.docs.length; j += BATCH_LIMIT) {
-                              const msgBatch = firestore().batch();
-                              const msgChunk = msgsSnap.docs.slice(j, j + BATCH_LIMIT);
-                              for (const msg of msgChunk) {
-                                msgBatch.delete(msg.ref);
-                              }
-                              await msgBatch.commit();
-                            }
-
-                            batch.delete(convo.ref);
-                          }
-
-                          await batch.commit();
+                      if (res.status === 409) {
+                        const data = await res.json();
+                        if (data.code === 'active_subscription') {
+                          Alert.alert(
+                            "Active Subscription",
+                            "Please cancel your subscription first before deleting your account.",
+                          );
+                          return;
                         }
-
-                        await firestore().collection("users").doc(uid).delete();
                       }
 
-                      // Best-effort: cancel any active Razorpay subscription
-                      // so the user isn't charged after deletion.
-                      // If the endpoint doesn't exist or fails, we still
-                      // proceed with deletion — the user can cancel manually.
-                      try {
-                        await apiFetch('/api/payment-cancel', {
-                          method: 'POST',
-                        });
-                      } catch (cancelError) {
-                        console.log('subscription cancel failed (non-fatal):', cancelError);
+                      if (!res.ok) {
+                        const body = await res.json().catch(() => ({}));
+                        throw new Error(body.error || 'Account deletion failed');
                       }
 
-                      try {
-                        await auth().currentUser?.delete();
-                      } catch (authError: any) {
-                        // Some Firebase SDK versions/account states only support
-                        // signOut for direct user-deletion. Fall back to signOut.
-                        console.log("account delete failed, signing out instead:", authError?.message);
-                        await auth().signOut();
+                      const data = await res.json();
+
+                      // 3. Optional client-side cleanup — AFTER the API call succeeds
+                      if (data.chatDocsFailed && data.chatDocsFailed > 0) {
+                        Alert.alert(
+                          "Partial Deletion",
+                          `Your account was deleted, but ${data.chatDocsFailed} chat document(s) couldn't be removed. Contact support if this is an issue.`,
+                        );
                       }
 
+                      await auth().currentUser?.delete().catch(() => {});
+                      await auth().signOut();
                       navigateToAuthRoot();
                     } catch (error: any) {
                       Alert.alert("Error", error.message);
