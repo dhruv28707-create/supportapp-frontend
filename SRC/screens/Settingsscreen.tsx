@@ -147,7 +147,10 @@ export default function SettingsScreen() {
                         );
                       }
 
-                      await auth().currentUser?.delete().catch(() => {});
+                      // The server already deleted the Firebase Auth user.
+                      // Just sign out locally — do NOT call currentUser.delete()
+                      // (the user no longer exists, so it would throw
+                      // auth/no-current-user or auth/user-not-found).
                       await auth().signOut();
                       navigateToAuthRoot();
                     } catch (error: any) {
