@@ -74,8 +74,10 @@ export function useOnlineStatus(cacheMs = 10_000): boolean {
       try {
         const controller = new AbortController();
         timer = setTimeout(() => controller.abort(), 3000);
+        // Must be GET — the backend health route only registers GET/POST/DELETE,
+        // so a HEAD request returns 405 and made the app always look offline.
         const res = await fetch('https://supportapp-backend.vercel.app/api/health', {
-          method: 'HEAD',
+          method: 'GET',
           signal: controller.signal,
         });
         setOnline(res.ok);
