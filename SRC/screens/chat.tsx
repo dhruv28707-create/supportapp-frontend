@@ -566,27 +566,37 @@ export default function ChatScreen() {
     setLoading(true);
 
     try {
-      const activeConversationId = await ensureConversation(uid, currentInput);
+      // Persistence must never block the reply: if Firestore is unreachable
+      // (rules, offline, quota) the user should still get an answer.
+      let activeConversationId: string | undefined = conversationId;
+      try {
+        activeConversationId = await ensureConversation(uid, currentInput);
+      } catch (e: any) {
+        console.warn('ensureConversation failed — continuing without history:', e?.message);
+        // do NOT rethrow
+      }
       const storedPersonality = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
 
-      try {
-        await conversationMessagesRef(uid, activeConversationId).doc(userMessage.id).set({
-          text: userMessage.text,
-          sender: userMessage.sender,
-          personality: storedPersonality,
-          createdAt: firestore.FieldValue.serverTimestamp(),
-        });
-        await conversationRef(uid, activeConversationId).set(
-          {
+      if (activeConversationId) {
+        try {
+          await conversationMessagesRef(uid, activeConversationId).doc(userMessage.id).set({
+            text: userMessage.text,
+            sender: userMessage.sender,
             personality: storedPersonality,
-            updatedAt: firestore.FieldValue.serverTimestamp(),
-            lastMessage: currentInput,
-            messageCount: firestore.FieldValue.increment(1),
-          },
-          { merge: true }
-        );
-      } catch (writeError: any) {
-        console.warn("save user message error:", writeError.message);
+            createdAt: firestore.FieldValue.serverTimestamp(),
+          });
+          await conversationRef(uid, activeConversationId).set(
+            {
+              personality: storedPersonality,
+              updatedAt: firestore.FieldValue.serverTimestamp(),
+              lastMessage: currentInput,
+              messageCount: firestore.FieldValue.increment(1),
+            },
+            { merge: true }
+          );
+        } catch (writeError: any) {
+          console.warn("save user message error:", writeError.message);
+        }
       }
 
       // Backend request payload matching contract exactly
@@ -621,6 +631,16 @@ export default function ChatScreen() {
         return;
       }
 
+      if (response.status === 403) {
+        const errData: any = await response.json().catch(() => ({}));
+        if (errData.code === 'persona_locked') {
+          Alert.alert('Upgrade required', errData.error || 'This personality requires a Pro plan.');
+          setLoading(false);
+          return;
+        }
+        throw new Error(errData.error || "Backend request failed");
+      }
+
       const data = await response.json();
 
       if (!response.ok) {
@@ -643,23 +663,25 @@ export default function ChatScreen() {
         religionSubType: data.religionSubType || religionSubType,
       };
 
-      try {
-        await conversationMessagesRef(uid, activeConversationId).doc(aiReply.id).set({
-          text: aiReply.text,
-          sender: aiReply.sender,
-          personality: echoedPersonality,
-          createdAt: firestore.FieldValue.serverTimestamp(),
-        });
-        await conversationRef(uid, activeConversationId).set(
-          {
-            updatedAt: firestore.FieldValue.serverTimestamp(),
-            lastMessage: aiReply.text,
-            messageCount: firestore.FieldValue.increment(1),
-          },
-          { merge: true }
-        );
-      } catch (writeError: any) {
-        console.warn("save ai message error:", writeError.message);
+      if (activeConversationId) {
+        try {
+          await conversationMessagesRef(uid, activeConversationId).doc(aiReply.id).set({
+            text: aiReply.text,
+            sender: aiReply.sender,
+            personality: echoedPersonality,
+            createdAt: firestore.FieldValue.serverTimestamp(),
+          });
+          await conversationRef(uid, activeConversationId).set(
+            {
+              updatedAt: firestore.FieldValue.serverTimestamp(),
+              lastMessage: aiReply.text,
+              messageCount: firestore.FieldValue.increment(1),
+            },
+            { merge: true }
+          );
+        } catch (writeError: any) {
+          console.warn("save ai message error:", writeError.message);
+        }
       }
 
       setMessages((prev) =>
@@ -670,11 +692,14 @@ export default function ChatScreen() {
 
     } catch (error: any) {
       console.log("handleSend error:", error.message);
+      const text = error?.name === 'AbortError'
+        ? "That took too long — please try again."
+        : "Sorry, I couldn't respond right now. Please try again.";
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== userMessage.id),
         {
           id: (Date.now() + 1).toString(),
-          text: "Sorry, I couldn't respond right now. Please try again.",
+          text,
           sender: "ai",
         },
       ]);
