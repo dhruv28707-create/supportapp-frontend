@@ -17,6 +17,8 @@ import auth from "@react-native-firebase/auth";
 import RazorpayCheckout from "react-native-razorpay";
 import { RAZORPAY_KEY_ID } from "../constants";
 import { apiFetch } from "../api/client";
+import { startUltimateTrial, TrialApiError } from "../services/safeSpaceApi";
+import { trialDaysLeft } from "../components/TrialBanner";
 import { colors } from "../theme";
 
 /**
@@ -92,7 +94,7 @@ export default function PaywallScreen() {
   type PaywallNavProp = NativeStackNavigationProp<RootStackParamList>;
 
   const navigation = useNavigation<PaywallNavProp>();
-  const { plan, refreshPlan } = useToken();
+  const { plan, refreshPlan, isTrial, trialEndsAt, trialAvailable, trialUsed } = useToken();
 
   const activePlanKey: "pro" | "ultimate" | null = plan.startsWith("pro")
   ? "pro"
@@ -104,6 +106,28 @@ export default function PaywallScreen() {
   const [loading, setLoading] = useState<"pro" | "ultimate" | null>(null);
   const [activating, setActivating] = useState(false);
   const [paymentFailed, setPaymentFailed] = useState(false);
+  const [trialLoading, setTrialLoading] = useState(false);
+  const [trialError, setTrialError] = useState<string | null>(null);
+
+  const handleStartTrial = async () => {
+    setTrialLoading(true);
+    setTrialError(null);
+    try {
+      await startUltimateTrial();
+      await refreshPlan();
+    } catch (error: any) {
+      if (
+        error instanceof TrialApiError &&
+        (error.code === 'trial_already_used' || error.code === 'already_subscribed')
+      ) {
+        await refreshPlan().catch(() => {});
+      } else {
+        setTrialError(error?.message || 'Could not start trial');
+      }
+    } finally {
+      setTrialLoading(false);
+    }
+  };
 
   const handleSubscribe = async (planKey: "pro" | "ultimate") => {
     const user = auth().currentUser;
@@ -281,8 +305,42 @@ export default function PaywallScreen() {
         <View style={styles.currentPlanBadge}>
           <Text style={styles.currentPlanText}>
             Current plan: {plan.toUpperCase()}
+            {isTrial ? ' (TRIAL)' : ''}
           </Text>
         </View>
+
+        {isTrial ? (
+          <View style={styles.trialBanner}>
+            <Text style={styles.trialBannerTitle}>Ultimate trial active</Text>
+            <Text style={styles.trialBannerSub}>
+              {trialDaysLeft(trialEndsAt)} day{trialDaysLeft(trialEndsAt) === 1 ? '' : 's'} left — enjoy every persona.
+            </Text>
+          </View>
+        ) : trialAvailable ? (
+          <View style={styles.trialCta}>
+            <Text style={styles.trialCtaTitle}>Try Ultimate free for 5 days</Text>
+            <Text style={styles.trialCtaSub}>
+              All 12 personas and 200 messages every 2 hours. No payment required.
+            </Text>
+            {trialError && <Text style={styles.trialError}>{trialError}</Text>}
+            <TouchableOpacity
+              style={styles.trialCtaBtn}
+              onPress={handleStartTrial}
+              disabled={trialLoading}
+              activeOpacity={0.85}
+            >
+              {trialLoading ? (
+                <ActivityIndicator color={colors.onPrimary} />
+              ) : (
+                <Text style={styles.trialCtaBtnText}>Start my free 5-day trial</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : trialUsed && plan === 'free' ? (
+          <View style={styles.trialEnded}>
+            <Text style={styles.trialEndedText}>Your free trial has ended — choose a plan to keep everything unlocked.</Text>
+          </View>
+        ) : null}
 
         {allPlansOwned ? (
           <View style={styles.allOwnedCard}>
@@ -397,6 +455,9 @@ export default function PaywallScreen() {
 
         {!allPlansOwned && (
           <Text style={styles.footer}>
+            {trialAvailable
+              ? 'Try Ultimate free for 5 days, no payment required.\n'
+              : ''}
             Payments are secure. Cancel anytime within 24 hours for a full refund.{"\n"}
             Monthly plans renew every 30 days. Yearly plans renew annually.
           </Text>
@@ -451,6 +512,46 @@ const styles = StyleSheet.create({
     color: colors.primary,
     letterSpacing: 0.5,
   },
+
+  trialBanner: {
+    width: "100%",
+    backgroundColor: "#1E2230",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  trialBannerTitle: { color: "#FFF", fontSize: 14, fontWeight: "700" },
+  trialBannerSub: { color: "#B9C0CF", fontSize: 12, marginTop: 2 },
+  trialCta: {
+    width: "100%",
+    backgroundColor: colors.onPrimary,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    padding: 20,
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  trialCtaTitle: { fontSize: 18, fontWeight: "800", color: colors.text, textAlign: "center" },
+  trialCtaSub: { fontSize: 13, color: colors.textMuted, textAlign: "center", marginTop: 6, marginBottom: 12 },
+  trialError: { fontSize: 13, color: colors.danger, marginBottom: 8, textAlign: "center" },
+  trialCtaBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 24,
+    width: "100%",
+    alignItems: "center",
+  },
+  trialCtaBtnText: { color: colors.onPrimary, fontSize: 15, fontWeight: "700" },
+  trialEnded: {
+    width: "100%",
+    backgroundColor: colors.border,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  trialEndedText: { fontSize: 13, color: colors.text, textAlign: "center", fontWeight: "600" },
 
   allOwnedCard: {
     width: "100%",

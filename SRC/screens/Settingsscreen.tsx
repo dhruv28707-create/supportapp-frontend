@@ -23,7 +23,7 @@ type SettingsNavProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function SettingsScreen() {
   const navigation = useNavigation<SettingsNavProp>();
-  const { plan, messagesRemaining, nextRefreshAt, expiresAt, refreshPlan } = useToken();
+  const { plan, messagesRemaining, nextRefreshAt, expiresAt, isTrial, trialEndsAt, refreshPlan } = useToken();
   const [userProfile, setUserProfile] = useState<any>(null);
   const currentUser = auth().currentUser;
   const isLoggedIn = Boolean(currentUser);
@@ -215,9 +215,14 @@ export default function SettingsScreen() {
                 {messagesRemaining} {messagesRemaining === 1 ? "message" : "messages"} left
                 {nextRefreshAt ? ` · refills in ${formatRefreshIn(secondsLeft)}` : ""}
               </Text>
-              {expiresAt && planKey !== 'free' && (
+              {expiresAt && planKey !== 'free' && !isTrial && (
                 <Text style={styles.planExpires}>
                   Renews on {new Date(expiresAt).toLocaleDateString()}
+                </Text>
+              )}
+              {isTrial && trialEndsAt && (
+                <Text style={styles.planExpires}>
+                  Ultimate trial ends on {new Date(trialEndsAt).toLocaleDateString()}
                 </Text>
               )}
             </View>

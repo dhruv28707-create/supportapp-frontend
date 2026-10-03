@@ -12,6 +12,10 @@ const TokenContext = createContext<TokenContextType>({
   nextRefreshAt: null,
   isLimitReached: false,
   expiresAt: null,
+  isTrial: false,
+  trialEndsAt: null,
+  trialUsed: false,
+  trialAvailable: false,
   loading: true,
   refreshPlan: async () => ({
     plan: 'free',
@@ -19,11 +23,15 @@ const TokenContext = createContext<TokenContextType>({
     nextRefreshAt: null,
     isLimitReached: false,
     expiresAt: null,
+    isTrial: false,
+    trialEndsAt: null,
+    trialUsed: false,
+    trialAvailable: false,
   }),
 });
 
 export const TokenProvider = ({ children }: { children: React.ReactNode }) => {
-  const { plan, messagesRemaining, nextRefreshAt, isLimitReached, expiresAt, loading, refreshPlan } = usePlan();
+  const { plan, messagesRemaining, nextRefreshAt, isLimitReached, expiresAt, isTrial, trialEndsAt, trialUsed, trialAvailable, loading, refreshPlan } = usePlan();
 
   return (
     <TokenContext.Provider
@@ -33,6 +41,10 @@ export const TokenProvider = ({ children }: { children: React.ReactNode }) => {
         nextRefreshAt,
         isLimitReached,
         expiresAt,
+        isTrial,
+        trialEndsAt,
+        trialUsed,
+        trialAvailable,
         loading,
         refreshPlan,
       }}

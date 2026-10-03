@@ -15,6 +15,7 @@ import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
 import { TIER_UNLOCKS, PlanKey } from "../constants";
 import { useCountdown, formatRefreshIn } from "../hooks/useCountdown";
+import TrialBanner from "../components/TrialBanner";
 import { colors } from "../theme";
 
 type LobbyNavProp = NativeStackNavigationProp<RootStackParamList, "Lobby">;
@@ -236,6 +237,7 @@ export default function LobbyScreen() {
       </View>
 
       <View style={styles.content}>
+        <TrialBanner compact />
         <TouchableOpacity
           style={styles.quotaBar}
           onPress={() => navigation.navigate("Paywall")}

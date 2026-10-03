@@ -9,6 +9,10 @@ export interface PlanInfo {
   nextRefreshAt: number | string | null;
   isLimitReached: boolean;
   expiresAt: string | null;
+  isTrial: boolean;
+  trialEndsAt: number | string | null;
+  trialUsed: boolean;
+  trialAvailable: boolean;
 }
 
 const DEFAULT_PLAN: PlanInfo = {
@@ -17,6 +21,10 @@ const DEFAULT_PLAN: PlanInfo = {
   nextRefreshAt: null,
   isLimitReached: false,
   expiresAt: null,
+  isTrial: false,
+  trialEndsAt: null,
+  trialUsed: false,
+  trialAvailable: false,
 };
 
 /**
@@ -52,12 +60,20 @@ export function usePlan() {
       const res = await apiFetch(`/api/user/plan`);
       const data = await res.json();
       if (res.ok) {
+        const isTrial = data.isTrial ?? false;
+        const trialUsed = data.trialUsed ?? false;
         const fresh: PlanInfo = {
           plan: data.plan || 'free',
           messagesRemaining: data.messagesRemaining ?? 0,
           nextRefreshAt: data.nextRefreshAt || null,
           isLimitReached: data.isLimitReached ?? false,
           expiresAt: data.expiresAt || null,
+          isTrial,
+          trialEndsAt: data.trialEndsAt ?? null,
+          trialUsed,
+          // Backend sends trialAvailable; fall back to derived value for
+          // older backends that only send isTrial/trialUsed.
+          trialAvailable: data.trialAvailable ?? (!isTrial && !trialUsed),
         };
         setPlanInfo(fresh);
         return fresh;
