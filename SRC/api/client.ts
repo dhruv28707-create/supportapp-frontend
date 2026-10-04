@@ -76,8 +76,15 @@ export async function apiFetch(
 
 /**
  * Health check endpoint (no auth).
+ * Accepts the new `firebase: 'connected' | 'disconnected'` field —
+ * Vercel now returns it too. 503 / disconnected = degraded.
  */
-export async function checkHealth(): Promise<{ ok: boolean; status?: string }> {
+export async function checkHealth(): Promise<{
+  ok: boolean;
+  status?: string;
+  firebase?: 'connected' | 'disconnected';
+  degraded?: boolean;
+}> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -86,16 +93,18 @@ export async function checkHealth(): Promise<{ ok: boolean; status?: string }> {
       const res = await fetch(`${BACKEND_URL}/api/health`, {
         signal: controller.signal,
       });
+      const data = await res.json().catch(() => ({}));
+      const firebase = data.firebase === 'connected' || data.firebase === 'disconnected' ? data.firebase : undefined;
       if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        return { ok: true, status: data.status || 'ok' };
+        return { ok: true, status: data.status || 'ok', firebase, degraded: firebase === 'disconnected' };
       }
-      return { ok: false };
+      // 503 = degraded (backend still responds but Firebase is down).
+      return { ok: false, status: data.status, firebase, degraded: true };
     } finally {
       clearTimeout(timeout);
     }
   } catch {
-    return { ok: false };
+    return { ok: false, degraded: true };
   }
 }
 

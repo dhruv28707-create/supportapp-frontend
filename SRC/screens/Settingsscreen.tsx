@@ -25,12 +25,15 @@ type SettingsNavProp = NativeStackNavigationProp<RootStackParamList>;
 export default function SettingsScreen() {
   const navigation = useNavigation<SettingsNavProp>();
   const route = useRoute<any>();
-  const { plan, messagesRemaining, nextRefreshAt, expiresAt, isTrial, trialEndsAt, refreshPlan } = useToken();
+  const { plan, messagesRemaining, nextRefreshAt, expiresAt, isTrial, trialEndsAt, refreshPlan, showRefillTimer, messagesUsed, messagesTotal, quotaPercent } = useToken();
   const [userProfile, setUserProfile] = useState<any>(null);
   const currentUser = auth().currentUser;
   const isLoggedIn = Boolean(currentUser);
 
-  const secondsLeft = useCountdown(nextRefreshAt);
+  // Refill countdown lives ONLY here: show it only when the backend says
+  // the quota is exhausted (showRefillTimer===true). Otherwise hide it.
+  const secondsLeft = useCountdown(showRefillTimer ? nextRefreshAt : null);
+  const showUsageBar = quotaPercent >= 0.75 && messagesTotal > 0;
 
   // Refetch the plan whenever this screen gains focus (e.g. returning from
   // the paywall after a purchase).
@@ -223,9 +226,17 @@ export default function SettingsScreen() {
                 {planInfo.name} Plan
               </Text>
               <Text style={styles.planSub}>
-                {messagesRemaining} {messagesRemaining === 1 ? "message" : "messages"} left
-                {nextRefreshAt ? ` · refills in ${formatRefreshIn(secondsLeft)}` : ""}
+                {showRefillTimer && nextRefreshAt
+                  ? `${messagesRemaining} ${messagesRemaining === 1 ? "message" : "messages"} left · refills in ${formatRefreshIn(secondsLeft)}`
+                  : messagesTotal > 0
+                    ? `${messagesUsed}/${messagesTotal} used · ${messagesRemaining} left`
+                    : `${messagesRemaining} ${messagesRemaining === 1 ? "message" : "messages"} left`}
               </Text>
+              {showUsageBar && (
+                <View style={styles.usageBarTrack}>
+                  <View style={[styles.usageBarFill, { width: `${Math.round(quotaPercent * 100)}%` }]} />
+                </View>
+              )}
               {expiresAt && planKey !== 'free' && !isTrial && (
                 <Text style={styles.planExpires}>
                   Renews on {new Date(expiresAt).toLocaleDateString()}
@@ -354,6 +365,14 @@ const styles = StyleSheet.create({
   planInfoWrap: { flex: 1 },
   planName: { fontSize: 16, fontWeight: "700" },
   planSub: { fontSize: 12, color: colors.textSubtle, marginTop: 2 },
+  usageBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+    marginTop: 8,
+    overflow: "hidden",
+  },
+  usageBarFill: { height: 6, borderRadius: 3, backgroundColor: colors.primary },
   planExpires: { fontSize: 12, color: colors.textSubtle, marginTop: 2, fontWeight: "600" },
   upgradeBtn: {
     backgroundColor: colors.primary,

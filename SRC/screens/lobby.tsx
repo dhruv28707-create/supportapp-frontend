@@ -14,7 +14,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
 import { TIER_UNLOCKS, PlanKey } from "../constants";
-import { useCountdown, formatRefreshIn } from "../hooks/useCountdown";
 import TrialBanner from "../components/TrialBanner";
 import { colors } from "../theme";
 
@@ -163,13 +162,11 @@ const religions = [
 
 export default function LobbyScreen() {
   const navigation = useNavigation<LobbyNavProp>();
-  const { plan, messagesRemaining, nextRefreshAt } = useToken();
+  const { plan, messagesRemaining } = useToken();
   const isUltimate = plan === 'ultimate';
   const [selected, setSelected] = useState("Father");
   const [showReligionModal, setShowReligionModal] = useState(false);
   const [selectedReligion, setSelectedReligion] = useState("spiritual");
-
-  const secondsLeft = useCountdown(nextRefreshAt);
 
   const planKey: PlanKey = (plan === 'pro' || plan === 'ultimate') ? plan : 'free';
   const unlockedPersonalities = TIER_UNLOCKS[planKey] ?? TIER_UNLOCKS.free;
@@ -247,11 +244,6 @@ export default function LobbyScreen() {
           <Text style={styles.quotaText}>
             💬 {messagesRemaining} {messagesRemaining === 1 ? "message" : "messages"} left
           </Text>
-          {nextRefreshAt && (
-            <Text style={styles.quotaRefresh}>
-              refills in {formatRefreshIn(secondsLeft)}
-            </Text>
-          )}
           {!isUltimate && <Text style={styles.quotaUpgrade}>Upgrade →</Text>}
         </TouchableOpacity>
 
@@ -423,7 +415,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   quotaText: { fontSize: 13, fontWeight: "600", color: colors.text },
-  quotaRefresh: { fontSize: 12, color: colors.textMuted, flex: 1 },
   quotaUpgrade: { fontSize: 12, fontWeight: "700", color: colors.primary },
 
   sectionTitle: {

@@ -41,7 +41,9 @@ function safeRazorpayKey(): string {
   );
 }
 
-const PLANS = {
+// Offline fallback only — the backend catalog (GET /api/plans) is the source
+// of truth for prices. Display prefers `catalogPrices` below.
+const FALLBACK_PLANS = {
   pro: {
     name: "Pro",
     monthlyPrice: 179,
@@ -55,7 +57,6 @@ const PLANS = {
     btnText: colors.onPrimary,
     badge: "POPULAR",
     features: [
-      "80 messages, refreshes every 4 hours",
       "8 personalities unlocked",
       "Friend & Best Friend",
       "Mentor access",
@@ -67,7 +68,6 @@ const PLANS = {
     name: "Ultimate",
     monthlyPrice: 199,
     yearlyPrice: 799,
-    monthlySaving: null,
     yearlySaving: 589,
     color: colors.onPrimary,
     textColor: colors.onPrimary,
@@ -77,7 +77,6 @@ const PLANS = {
     btnText: colors.primary,
     badge: "BEST",
     features: [
-      "200 messages, refreshes every 2 hours",
       "All Pro features",
       "Boyfriend & Girlfriend",
       "Husband & Wife",
@@ -113,18 +112,36 @@ export default function PaywallScreen() {
   const [trialLoading, setTrialLoading] = useState(false);
   const [trialError, setTrialError] = useState<string | null>(null);
   const [catalogPrices, setCatalogPrices] = useState<Record<string, number> | null>(null);
+  const [catalogMeta, setCatalogMeta] = useState<Record<string, { messageLimit: number; refreshHours: number }> | null>(null);
 
-  // Prefer backend pricing when available; fall back to bundled prices offline.
+  // Backend catalog is the source of truth for prices (amount/amountPaise).
+  // Fall back to bundled prices only when offline.
   useEffect(() => {
     let mounted = true;
     fetchPlans()
       .then(({ options }) => {
         if (!mounted || !options?.length) return;
         const prices: Record<string, number> = {};
+        const meta: Record<string, { messageLimit: number; refreshHours: number }> = {};
         for (const o of options) {
-          if (o.tier && typeof o.amount === "number") prices[o.tier] = o.amount;
+          const key = o.tier || o.id;
+          if (!key) continue;
+          const amount =
+            typeof o.amount === "number"
+              ? o.amount
+              : typeof o.amountPaise === "number"
+                ? o.amountPaise / 100
+                : undefined;
+          if (typeof amount === "number") prices[key] = amount;
+          if (typeof o.messageLimit === "number" || typeof o.refreshHours === "number") {
+            meta[key] = {
+              messageLimit: o.messageLimit ?? 0,
+              refreshHours: o.refreshHours ?? 0,
+            };
+          }
         }
         if (Object.keys(prices).length > 0) setCatalogPrices(prices);
+        if (Object.keys(meta).length > 0) setCatalogMeta(meta);
       })
       .catch(() => {})
     return () => {
@@ -184,9 +201,10 @@ export default function PaywallScreen() {
         throw new Error(orderData.error || "Failed to create order");
       }
 
-      // The order endpoint returns orderId, amount, currency, keyId
+      // The order endpoint returns orderId, amount, currency, keyId.
+      // The charged amount always comes from the backend order, never local constants.
       const options = {
-        description: `${PLANS[planKey].name} Plan – ${billingCycle === "monthly" ? "Monthly" : "Yearly"}`,
+        description: `${FALLBACK_PLANS[planKey].name} Plan – ${billingCycle === "monthly" ? "Monthly" : "Yearly"}`,
         currency: orderData.currency || "INR",
         key: orderData.keyId || orderData.key || safeRazorpayKey(),
         amount: orderData.amount,
@@ -241,7 +259,7 @@ export default function PaywallScreen() {
 
       Alert.alert(
         "Payment Successful",
-        `You are now on the ${PLANS[planKey].name} ${billingCycle === "monthly" ? "Monthly" : "Yearly"} plan.${expiresText}`,
+        `You are now on the ${FALLBACK_PLANS[planKey].name} ${billingCycle === "monthly" ? "Monthly" : "Yearly"} plan.${expiresText}`,
         [{ text: "Continue", onPress: () => navigation.goBack() }]
       );
     } catch (error: any) {
@@ -400,10 +418,15 @@ export default function PaywallScreen() {
               </TouchableOpacity>
             </View>
 
-            {Object.entries(PLANS).map(([key, planItem]) => {
+            {Object.entries(FALLBACK_PLANS).map(([key, planItem]) => {
               if (key === "pro" && (activePlanKey === "pro" || activePlanKey === "ultimate")) return null;
-              const backendPrice = catalogPrices?.[`${key}_${billingCycle}`];
+              const tierKey = `${key}_${billingCycle}`;
+              const backendPrice = catalogPrices?.[tierKey];
               const shownPrice = backendPrice ?? (billingCycle === "monthly" ? planItem.monthlyPrice : planItem.yearlyPrice);
+              const quota = catalogMeta?.[tierKey];
+              const quotaLine = quota && quota.messageLimit > 0
+                ? `${quota.messageLimit} messages, refreshes every ${quota.refreshHours} ${quota.refreshHours === 1 ? "hour" : "hours"}`
+                : null;
 
               const isPurchased = activePlanKey === key;
               const isUltimateStyle = planItem.color === colors.onPrimary;
@@ -452,6 +475,11 @@ export default function PaywallScreen() {
 
                   <View style={[styles.divider, dividerColor]} />
 
+                  {quotaLine && (
+                    <Text style={[styles.featureItem, { color: planItem.textColor }]}>
+                      {quotaLine}
+                    </Text>
+                  )}
                   {planItem.features.map((f, i) => (
                     <Text key={i} style={[styles.featureItem, { color: planItem.textColor }]}>
                       {f}

@@ -13,6 +13,12 @@ export interface PlanInfo {
   trialEndsAt: number | string | null;
   trialUsed: boolean;
   trialAvailable: boolean;
+  /** True only when the quota is exhausted and a refill countdown should be shown. */
+  showRefillTimer: boolean;
+  messagesUsed: number;
+  messagesTotal: number;
+  /** 0..1 fraction of quota consumed. */
+  quotaPercent: number;
 }
 
 const DEFAULT_PLAN: PlanInfo = {
@@ -25,6 +31,10 @@ const DEFAULT_PLAN: PlanInfo = {
   trialEndsAt: null,
   trialUsed: false,
   trialAvailable: false,
+  showRefillTimer: false,
+  messagesUsed: 0,
+  messagesTotal: 0,
+  quotaPercent: 0,
 };
 
 /**
@@ -62,9 +72,19 @@ export function usePlan() {
       if (res.ok) {
         const isTrial = data.isTrial ?? false;
         const trialUsed = data.trialUsed ?? false;
+        const messagesRemaining = data.messagesRemaining ?? 0;
+        const messagesTotal = data.messagesTotal ?? 0;
+        const messagesUsed =
+          data.messagesUsed ?? (messagesTotal > 0 ? Math.max(0, messagesTotal - messagesRemaining) : 0);
+        const quotaPercent =
+          typeof data.quotaPercent === 'number'
+            ? data.quotaPercent
+            : messagesTotal > 0
+              ? Math.min(1, Math.max(0, messagesUsed / messagesTotal))
+              : 0;
         const fresh: PlanInfo = {
           plan: data.plan || 'free',
-          messagesRemaining: data.messagesRemaining ?? 0,
+          messagesRemaining,
           nextRefreshAt: data.nextRefreshAt || null,
           isLimitReached: data.isLimitReached ?? false,
           expiresAt: data.expiresAt || null,
@@ -74,6 +94,11 @@ export function usePlan() {
           // Backend sends trialAvailable; fall back to derived value for
           // older backends that only send isTrial/trialUsed.
           trialAvailable: data.trialAvailable ?? (!isTrial && !trialUsed),
+          // Gate the refill countdown: only show it when the backend says so.
+          showRefillTimer: data.showRefillTimer ?? false,
+          messagesUsed,
+          messagesTotal,
+          quotaPercent,
         };
         setPlanInfo(fresh);
         return fresh;

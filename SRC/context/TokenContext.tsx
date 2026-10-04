@@ -16,6 +16,10 @@ const TokenContext = createContext<TokenContextType>({
   trialEndsAt: null,
   trialUsed: false,
   trialAvailable: false,
+  showRefillTimer: false,
+  messagesUsed: 0,
+  messagesTotal: 0,
+  quotaPercent: 0,
   loading: true,
   refreshPlan: async () => ({
     plan: 'free',
@@ -27,6 +31,10 @@ const TokenContext = createContext<TokenContextType>({
     trialEndsAt: null,
     trialUsed: false,
     trialAvailable: false,
+    showRefillTimer: false,
+    messagesUsed: 0,
+    messagesTotal: 0,
+    quotaPercent: 0,
   }),
 });
 
@@ -44,6 +52,10 @@ export const TokenProvider = ({ children }: { children: React.ReactNode }) => {
       trialEndsAt: planInfo.trialEndsAt,
       trialUsed: planInfo.trialUsed,
       trialAvailable: planInfo.trialAvailable,
+      showRefillTimer: planInfo.showRefillTimer,
+      messagesUsed: planInfo.messagesUsed,
+      messagesTotal: planInfo.messagesTotal,
+      quotaPercent: planInfo.quotaPercent,
       loading: planInfo.loading,
       refreshPlan: planInfo.refreshPlan,
     }),

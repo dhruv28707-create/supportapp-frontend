@@ -24,6 +24,10 @@ export interface PlanState {
   trialEndsAt: number | string | null;
   trialUsed: boolean;
   trialAvailable: boolean;
+  showRefillTimer: boolean;
+  messagesUsed: number;
+  messagesTotal: number;
+  quotaPercent: number;
 }
 
 export interface PlanOption {
@@ -72,9 +76,19 @@ async function parseOrThrow<T>(res: Response): Promise<T> {
 function toPlanState(data: any): PlanState {
   const isTrial = data?.isTrial ?? false;
   const trialUsed = data?.trialUsed ?? false;
+  const messagesRemaining = data?.messagesRemaining ?? 0;
+  const messagesTotal = data?.messagesTotal ?? 0;
+  const messagesUsed =
+    data?.messagesUsed ?? (messagesTotal > 0 ? Math.max(0, messagesTotal - messagesRemaining) : 0);
+  const quotaPercent =
+    typeof data?.quotaPercent === 'number'
+      ? data.quotaPercent
+      : messagesTotal > 0
+        ? Math.min(1, Math.max(0, messagesUsed / messagesTotal))
+        : 0;
   return {
     plan: (data?.plan as Plan) || 'free',
-    messagesRemaining: data?.messagesRemaining ?? 0,
+    messagesRemaining,
     nextRefreshAt: data?.nextRefreshAt ?? null,
     isLimitReached: data?.isLimitReached ?? false,
     expiresAt: data?.expiresAt ?? null,
@@ -82,6 +96,10 @@ function toPlanState(data: any): PlanState {
     trialEndsAt: data?.trialEndsAt ?? null,
     trialUsed,
     trialAvailable: data?.trialAvailable ?? (!isTrial && !trialUsed),
+    showRefillTimer: data?.showRefillTimer ?? false,
+    messagesUsed,
+    messagesTotal,
+    quotaPercent,
   };
 }
 

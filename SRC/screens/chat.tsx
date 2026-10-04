@@ -20,7 +20,7 @@ import auth from "@react-native-firebase/auth";
 import { useToken } from "../context/TokenContext";
 import { CRISIS_HELPLINES } from "../constants";
 import { apiFetch } from "../api/client";
-import { useCountdown, formatCountdown, formatRefreshIn, useOnlineStatus } from "../hooks/useCountdown";
+import { useCountdown, formatCountdown, useOnlineStatus } from "../hooks/useCountdown";
 import { colors } from "../theme";
 
 type ChatNavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -363,7 +363,7 @@ export default function ChatScreen() {
   const themeKey = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
   const theme = PERSONALITY_THEME[themeKey] ?? DEFAULT_THEME;
 
-  const { refreshPlan, isLimitReached, messagesRemaining, nextRefreshAt, plan } = useToken();
+  const { refreshPlan, messagesRemaining, plan } = useToken();
 
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -372,10 +372,18 @@ export default function ChatScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [conversationId, setConversationId] = useState<string | undefined>(initialConversationId);
 
-  // 429 Limit signal
-  const [limitSignal, setLimitSignal] = useState<{ hit: boolean; refreshAt: number | string | null }>({
+  // 429 signal from the backend. `showRefillTimer` decides which banner to show:
+  // - true  → quota exhausted → "limit reached, refills at X" + link to Settings
+  // - false → abuse/IP rate limit (code 'ip_rate_limited') → generic retry msg, no timer.
+  const [limitSignal, setLimitSignal] = useState<{
+    hit: boolean;
+    refreshAt: number | string | null;
+    showRefillTimer: boolean;
+    code?: string;
+  }>({
     hit: false,
     refreshAt: null,
+    showRefillTimer: false,
   });
 
   // 503 Service error signal with retry
@@ -553,7 +561,7 @@ export default function ChatScreen() {
 
     if (isCrisisMessage(currentInput)) showCrisisSupport();
 
-    if (isLimitReached || limitSignal.hit) {
+    if (limitSignal.hit) {
       await refreshPlan();
       return;
     }
@@ -623,7 +631,12 @@ export default function ChatScreen() {
         try {
           quotaData = await response.json();
         } catch {}
-        setLimitSignal({ hit: true, refreshAt: quotaData.nextRefreshAt ?? null });
+        setLimitSignal({
+          hit: true,
+          refreshAt: quotaData.nextRefreshAt ?? null,
+          showRefillTimer: quotaData.showRefillTimer ?? response.status === 402,
+          code: quotaData.code,
+        });
         await refreshPlan();
         setLoading(false);
         return;
@@ -639,7 +652,7 @@ export default function ChatScreen() {
       if (response.status === 403) {
         const errData: any = await response.json().catch(() => ({}));
         if (errData.code === 'persona_locked') {
-          Alert.alert('Upgrade required', errData.error || 'This personality requires a Pro plan.');
+          Alert.alert('Upgrade required', errData.error || 'This personality requires a paid plan.');
           setLoading(false);
           return;
         }
@@ -723,21 +736,24 @@ export default function ChatScreen() {
 
   const sendButtonStyle = { backgroundColor: loading ? colors.borderStrong : theme.sendBtn };
 
-  const limitReached = isLimitReached || limitSignal.hit;
-  const countdownTarget = limitSignal.refreshAt ?? nextRefreshAt;
-  const secondsLeft = useCountdown(countdownTarget);
+  // Refill countdown is never rendered from plan.nextRefreshAt in chat.
+  // Only the 429 response body decides: showRefillTimer=true → quota banner
+  // with timer; otherwise a generic rate-limit banner with no timer.
+  const quotaExhausted = limitSignal.hit && limitSignal.showRefillTimer;
+  const rateLimited = limitSignal.hit && !limitSignal.showRefillTimer;
+  const secondsLeft = useCountdown(limitSignal.refreshAt);
   const isOnline = useOnlineStatus();
 
   const clearedExpiredSignal = useRef(false);
   useEffect(() => {
-    if (limitReached && secondsLeft === 0 && !clearedExpiredSignal.current) {
+    if (quotaExhausted && secondsLeft === 0 && !clearedExpiredSignal.current) {
       clearedExpiredSignal.current = true;
-      setLimitSignal({ hit: false, refreshAt: null });
+      setLimitSignal({ hit: false, refreshAt: null, showRefillTimer: false });
       refreshPlan();
     } else if (secondsLeft > 0) {
       clearedExpiredSignal.current = false;
     }
-  }, [limitReached, secondsLeft, refreshPlan]);
+  }, [quotaExhausted, secondsLeft, refreshPlan]);
 
   const renderMessage = ({ item }: { item: Message }) => {
     const itemPersona = item.personality || personality;
@@ -867,7 +883,7 @@ export default function ChatScreen() {
           </View>
         )}
 
-        {limitReached ? (
+        {quotaExhausted ? (
           <View style={[styles.limitBanner, { borderColor: theme.inputBorder }]}>
             <View style={styles.limitBannerRow}>
               <Text style={[styles.limitEmoji, { color: theme.typingColor }]}>💛</Text>
@@ -878,17 +894,38 @@ export default function ChatScreen() {
                 <Text style={[styles.limitCountdown, { color: theme.typingColor }]}>
                   New messages in{" "}
                   <Text style={[styles.limitCountdownBold, { color: theme.typingColor }]}>
-                    {countdownTarget ? formatCountdown(secondsLeft) : "--:--:--"}
+                    {limitSignal.refreshAt ? formatCountdown(secondsLeft) : "--:--:--"}
                   </Text>
                 </Text>
               </View>
             </View>
             <TouchableOpacity
               style={[styles.upgradeBtn, { backgroundColor: theme.sendBtn }]}
-              onPress={() => navigation.navigate("Paywall")}
+              onPress={() => navigation.navigate("Settings")}
               activeOpacity={0.85}
             >
-              <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>Upgrade ✨</Text>
+              <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>View in Settings</Text>
+            </TouchableOpacity>
+          </View>
+        ) : rateLimited ? (
+          <View style={[styles.limitBanner, { borderColor: theme.inputBorder }]}>
+            <View style={styles.limitBannerRow}>
+              <Text style={[styles.limitEmoji, { color: theme.typingColor }]}>⏳</Text>
+              <View style={styles.limitBannerCopy}>
+                <Text style={[styles.limitTitle, { color: theme.typingColor }]}>
+                  Too many requests
+                </Text>
+                <Text style={[styles.limitCountdown, { color: theme.typingColor }]}>
+                  Please retry in a bit.
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.upgradeBtn, { backgroundColor: theme.sendBtn }]}
+              onPress={() => setLimitSignal({ hit: false, refreshAt: null, showRefillTimer: false })}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>Dismiss</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -900,11 +937,6 @@ export default function ChatScreen() {
             <Text style={[styles.quotaText, { color: theme.typingColor }]}>
               💬 {messagesRemaining} {messagesRemaining === 1 ? "message" : "messages"} left
             </Text>
-            {countdownTarget && (
-              <Text style={[styles.quotaRefresh, { color: theme.typingColor }]}>
-                refills in {formatRefreshIn(secondsLeft)}
-              </Text>
-            )}
             {plan !== 'ultimate' && (
               <Text style={[styles.quotaUpgrade, { color: theme.sendBtn }]}>Upgrade →</Text>
             )}
@@ -1032,7 +1064,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   quotaText: { fontSize: 13, fontWeight: "600" },
-  quotaRefresh: { fontSize: 12, flex: 1 },
   quotaUpgrade: { fontSize: 12, fontWeight: "700" },
   limitBanner: {
     marginHorizontal: 12,

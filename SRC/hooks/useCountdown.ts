@@ -79,11 +79,17 @@ export function useOnlineStatus(cacheMs = 10_000): boolean {
       try {
         // Must be GET — the backend health route only registers GET/POST/DELETE,
         // so a HEAD request returns 405 and made the app always look offline.
+        // Accepts the new `firebase` field; 503 / disconnected = degraded.
         const res = await fetch(`${BACKEND_URL}/api/health`, {
           method: 'GET',
           signal: controller.signal,
         });
-        if (!cancelled) setOnline(res.ok);
+        if (!res.ok) {
+          if (!cancelled) setOnline(false);
+          return;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) setOnline(data.firebase !== 'disconnected');
       } catch {
         if (!cancelled) setOnline(false);
       } finally {
