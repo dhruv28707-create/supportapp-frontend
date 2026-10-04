@@ -1,4 +1,4 @@
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useMemo } from "react";
 import { usePlan, PlanInfo } from "../hooks/usePlan";
 
 interface TokenContextType extends PlanInfo {
@@ -31,24 +31,27 @@ const TokenContext = createContext<TokenContextType>({
 });
 
 export const TokenProvider = ({ children }: { children: React.ReactNode }) => {
-  const { plan, messagesRemaining, nextRefreshAt, isLimitReached, expiresAt, isTrial, trialEndsAt, trialUsed, trialAvailable, loading, refreshPlan } = usePlan();
+  const planInfo = usePlan();
+
+  const value = useMemo<TokenContextType>(
+    () => ({
+      plan: planInfo.plan,
+      messagesRemaining: planInfo.messagesRemaining,
+      nextRefreshAt: planInfo.nextRefreshAt,
+      isLimitReached: planInfo.isLimitReached,
+      expiresAt: planInfo.expiresAt,
+      isTrial: planInfo.isTrial,
+      trialEndsAt: planInfo.trialEndsAt,
+      trialUsed: planInfo.trialUsed,
+      trialAvailable: planInfo.trialAvailable,
+      loading: planInfo.loading,
+      refreshPlan: planInfo.refreshPlan,
+    }),
+    [planInfo]
+  );
 
   return (
-    <TokenContext.Provider
-      value={{
-        plan,
-        messagesRemaining,
-        nextRefreshAt,
-        isLimitReached,
-        expiresAt,
-        isTrial,
-        trialEndsAt,
-        trialUsed,
-        trialAvailable,
-        loading,
-        refreshPlan,
-      }}
-    >
+    <TokenContext.Provider value={value}>
       {children}
     </TokenContext.Provider>
   );

@@ -16,6 +16,7 @@ import firestore from "@react-native-firebase/firestore";
 import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
 import { useNavigation } from "@react-navigation/native";
 import { colors, radius, spacing, shadow, typography } from "../theme";
+import { normalizeEmail, isValidEmail, extractGoogleIdToken, friendlyAuthError } from "../utils/auth";
 
 export default function LoginScreen() {
   const nav = useNavigation<any>();
@@ -24,18 +25,23 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    const cleanEmail = normalizeEmail(email);
+    if (!cleanEmail || !password) {
       Alert.alert("Missing Fields", "Please enter your email and password.");
+      return;
+    }
+    if (!isValidEmail(cleanEmail)) {
+      Alert.alert("Invalid Email", "That email address looks invalid. Please check it and try again.");
       return;
     }
     setLoading(true);
     try {
-      await auth().signInWithEmailAndPassword(email, password);
+      await auth().signInWithEmailAndPassword(cleanEmail, password);
       // Navigation to the app stack happens automatically via onAuthStateChanged
       // in AppNavigator — do NOT call navigation.replace("Lobby") here, the auth
       // stack has no such route and it races the auth-state switch.
     } catch (error: any) {
-      Alert.alert("Login Failed", error.message);
+      Alert.alert("Login Failed", friendlyAuthError(error, "Could not sign you in. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -46,7 +52,7 @@ export default function LoginScreen() {
       setLoading(true);
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
-      const idToken = userInfo.data?.idToken;
+      const idToken = extractGoogleIdToken(userInfo);
       if (!idToken) {
         Alert.alert("Google Sign-In Failed", "Could not retrieve account token. Please try again.");
         return;
@@ -76,7 +82,7 @@ export default function LoginScreen() {
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {
         // user cancelled, do nothing
       } else {
-        Alert.alert("Google Sign-In Failed", error.message);
+        Alert.alert("Google Sign-In Failed", friendlyAuthError(error, "Could not sign in with Google. Please try again."));
       }
     } finally {
       setLoading(false);

@@ -61,14 +61,13 @@ export async function apiFetch(
     });
 
     if (response.status === 401) {
-      // Token expired mid-flight — force a refresh and retry once.
-      const refreshed = await doFetch(true, signal);
-      if (refreshed.status === 401) {
-        // Session is genuinely dead — force a re-login.
-        await auth().signOut();
-        throw new ApiError(401, 'Session expired. Please log in again.');
+      // Token expired mid-flight — force a refresh and retry exactly once.
+      if (!forceRefresh) {
+        return doFetch(true, signal);
       }
-      return refreshed;
+      // Retry also returned 401 — session is genuinely dead, force re-login.
+      await auth().signOut();
+      throw new ApiError(401, 'Session expired. Please log in again.');
     }
 
     return response;

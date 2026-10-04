@@ -57,13 +57,29 @@ const ListSeparator = () => <View style={styles.separator} />;
 
 const displayLabel = (personality: string) => {
   if (personality.startsWith("Guide_")) {
-    const sub = personality.split("_")[1];
+    const sub = personality.split("_")[1] ?? "";
+    if (!sub) return "Guide";
     return `Guide · ${sub.charAt(0).toUpperCase() + sub.slice(1)}`;
   }
   if (personality === "BestFriend") return "Best Friend";
   if (personality === "BF") return "Boyfriend";
   if (personality === "GF") return "Girlfriend";
   return personality;
+};
+
+/** Append alpha to a 6-digit hex color; fall back to the base color otherwise. */
+const withAlpha = (hex: string, alpha: string): string => {
+  if (/^#[0-9a-fA-F]{6}$/.test(hex)) return `${hex}${alpha}`;
+  return hex;
+};
+
+/** Parse a stored personality like "Guide_islamic" into nav params. */
+const toChatParams = (personality: string, conversationId: string) => {
+  if (personality.startsWith("Guide_")) {
+    const sub = personality.split("_")[1];
+    return { personality: "Guide", religionSubType: sub, conversationId };
+  }
+  return { personality, conversationId };
 };
 
 const formatTime = (timestamp: any): string => {
@@ -86,6 +102,10 @@ export default function ConversationHistoryScreen() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string>(filterPersonality ?? "All");
+
+  useEffect(() => {
+    if (filterPersonality) setActiveFilter(filterPersonality);
+  }, [filterPersonality]);
 
   useEffect(() => {
     const uid = auth().currentUser?.uid;
@@ -114,7 +134,7 @@ export default function ConversationHistoryScreen() {
           setLoading(false);
         },
         (error) => {
-          console.log("history screen error:", error.message);
+          if (__DEV__) console.log("history screen error:", error?.message);
           setLoading(false);
         }
       );
@@ -124,13 +144,12 @@ export default function ConversationHistoryScreen() {
 
   const filtered = activeFilter === "All"
     ? conversations
-    : conversations.filter((c) => c.personality === activeFilter);
+    : activeFilter === "Guide"
+      ? conversations.filter((c) => c.personality === "Guide" || c.personality.startsWith("Guide_"))
+      : conversations.filter((c) => c.personality === activeFilter);
 
   const handleOpen = (conversation: Conversation) => {
-    navigation.navigate("chat", {
-      personality: conversation.personality,
-      conversationId: conversation.id,
-    });
+    navigation.navigate("chat", toChatParams(conversation.personality, conversation.id) as any);
   };
 
   const handleDelete = useCallback((conversation: Conversation) => {
@@ -173,7 +192,7 @@ export default function ConversationHistoryScreen() {
                 .doc(conversation.id)
                 .delete();
             } catch (error: any) {
-              console.log("delete error:", error.message);
+              if (__DEV__) console.log("delete error:", error?.message);
               Alert.alert("Error", "Could not delete conversation. Please try again.");
             }
           },
@@ -185,7 +204,7 @@ export default function ConversationHistoryScreen() {
   const renderConversation = ({ item }: { item: Conversation }) => {
     const color = personalityColor[item.personality] ?? colors.primary;
     const emoji = personalityEmoji[item.personality] ?? "💬";
-    const avatarBg = { backgroundColor: color + "22" };
+    const avatarBg = { backgroundColor: withAlpha(color, "22") };
 
     return (
       <TouchableOpacity

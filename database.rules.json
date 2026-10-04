@@ -1,13 +1,13 @@
 {
   "rules": {
-    ".read": "auth != null",
-    ".write": "auth != null",
+    ".read": false,
+    ".write": false,
     "users": {
       "$uid": {
         ".read": "auth != null && ($uid === auth.uid)",
         ".write": "auth != null && ($uid === auth.uid)",
         "role": {
-          ".validate": "newData.val() !== 'developer'"
+          ".validate": "newData.val() !== 'developer' && newData.val() !== 'owner'"
         },
         "isDeveloper": {
           ".validate": "newData.val() !== true"

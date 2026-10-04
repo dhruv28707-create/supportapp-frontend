@@ -338,7 +338,12 @@ const conversationRef = (uid: string, id: string) => conversationsRef(uid).doc(i
 const conversationMessagesRef = (uid: string, id: string) =>
   conversationRef(uid, id).collection("messages");
 
-const makeMessageId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const makeMessageId = () =>
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** Normalize stored/returned text: handle escaped + real CRLF/LF uniformly. */
+const normalizeNewlines = (text: string): string =>
+  text.replace(/\\r\\n|\\n/g, "\n").replace(/\r\n/g, "\n");
 
 export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
@@ -466,7 +471,7 @@ export default function ChatScreen() {
                 const data = doc.data();
                 return {
                   id: doc.id,
-                  text: (data.text ?? "").replace(/\\r\\n|\\n|\r\n/g, "\n"),
+                  text: normalizeNewlines(data.text ?? ""),
                   sender: data.sender === "user" ? "user" : "ai",
                   personality: data.personality || personality,
                   religionSubType: data.religionSubType || religionSubType,
@@ -477,7 +482,7 @@ export default function ChatScreen() {
               );
             },
             (error) => {
-              console.log("conversation listener error:", error.message);
+              if (__DEV__) console.log("conversation listener error:", error?.message);
               setMessages((prev) => (prev.length > 0 ? prev : [welcome]));
             }
           );
@@ -652,7 +657,7 @@ export default function ChatScreen() {
         throw new Error("Invalid AI response");
       }
 
-      const aiText = rawContent.replace(/\\r\\n|\\n|\r\n/g, "\n");
+      const aiText = normalizeNewlines(rawContent);
       const echoedPersonality = data.personality || personality;
 
       const aiReply: Message = {
@@ -691,18 +696,24 @@ export default function ChatScreen() {
       await refreshPlan();
 
     } catch (error: any) {
-      console.log("handleSend error:", error.message);
+      if (__DEV__) console.log("handleSend error:", error?.message);
       const text = error?.name === 'AbortError'
         ? "That took too long — please try again."
         : "Sorry, I couldn't respond right now. Please try again.";
-      setMessages((prev) => [
-        ...prev.filter((m) => m.id !== userMessage.id),
-        {
-          id: (Date.now() + 1).toString(),
-          text,
-          sender: "ai",
-        },
-      ]);
+      // Keep the user's message for context — only append the error bubble
+      // if one isn't already there (prevents duplicates on retry).
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.sender === "ai" && last.text === text) return prev;
+        return [
+          ...prev,
+          {
+            id: makeMessageId(),
+            text,
+            sender: "ai" as const,
+          },
+        ];
+      });
     } finally {
       setLoading(false);
     }

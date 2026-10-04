@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useToken } from '../context/TokenContext';
 import { startUltimateTrial, TrialApiError } from '../services/safeSpaceApi';
 import { colors } from '../theme';
+
+const DISMISS_KEY = 'safespace:trial-banner-dismissed';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -24,6 +27,19 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(DISMISS_KEY)
+      .then((v) => {
+        if (v === '1') setDismissed(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  const dismiss = () => {
+    setDismissed(true);
+    AsyncStorage.setItem(DISMISS_KEY, '1').catch(() => {});
+  };
 
   const onStartTrial = async () => {
     setBusy(true);
@@ -70,7 +86,7 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
             <Text style={styles.ctaBtnText}>Start my free 5-day trial</Text>
           )}
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => setDismissed(true)} disabled={busy} activeOpacity={0.7}>
+        <TouchableOpacity onPress={dismiss} disabled={busy} activeOpacity={0.7}>
           <Text style={styles.link}>Not now</Text>
         </TouchableOpacity>
       </View>
@@ -82,15 +98,15 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
 
 const styles = StyleSheet.create({
   banner: {
-    backgroundColor: '#1E2230',
+    backgroundColor: colors.primaryDarker,
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
     width: '100%',
   },
   bannerCompact: { padding: 10, marginBottom: 8 },
-  bannerTitle: { color: '#FFF', fontSize: 14, fontWeight: '700' },
-  bannerSub: { color: '#B9C0CF', fontSize: 12, marginTop: 2 },
+  bannerTitle: { color: colors.onPrimary, fontSize: 14, fontWeight: '700' },
+  bannerSub: { color: colors.onPrimaryMuted, fontSize: 12, marginTop: 2 },
   cta: {
     backgroundColor: colors.onPrimary,
     borderRadius: 20,

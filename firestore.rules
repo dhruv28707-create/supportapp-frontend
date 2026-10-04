@@ -10,14 +10,18 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
-    // God account: add the owner emails you want to retain admin access here.
-    // If you rely on role flags instead, replace this function accordingly.
+    // Admin access: prefer the `admin` custom claim (set via backend
+    // `auth.setCustomUserClaims(uid, { admin: true })`). The legacy owner
+    // emails below are kept for backward compatibility until the claims
+    // migration is complete — then remove the email list entirely.
     function isGodAccount() {
-      return signedIn()
-        && request.auth.token.email in [
+      return signedIn() && (
+        request.auth.token.admin == true
+        || request.auth.token.email in [
           'piyush28707@gmail.com',
           'prachibhatt1972007@gmail.com'
-        ];
+        ]
+      );
     }
 
     function isValidUserTier() {
@@ -37,10 +41,21 @@ service cloud.firestore {
     }
 
     function normalUserKeepsProtectedFields() {
+      // Missing keys on either side must not throw — treat absent == absent.
+      // `tier` is always present (enforced by isValidUserTier), the rest are optional.
       return request.resource.data.tier == resource.data.tier
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.isDeveloper == resource.data.isDeveloper
-        && request.resource.data.premium == resource.data.premium;
+        && (
+          !('role' in request.resource.data) || !('role' in resource.data)
+          || request.resource.data.role == resource.data.role
+        )
+        && (
+          !('isDeveloper' in request.resource.data) || !('isDeveloper' in resource.data)
+          || request.resource.data.isDeveloper == resource.data.isDeveloper
+        )
+        && (
+          !('premium' in request.resource.data) || !('premium' in resource.data)
+          || request.resource.data.premium == resource.data.premium
+        );
     }
 
     match /users/{uid} {
@@ -84,7 +99,7 @@ service cloud.firestore {
     }
 
     match /payments/{orderId} {
-      allow read: if isGodAccount() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow read: if isGodAccount() || (signedIn() && resource != null && resource.data.uid == request.auth.uid);
       allow write: if isGodAccount();
     }
 

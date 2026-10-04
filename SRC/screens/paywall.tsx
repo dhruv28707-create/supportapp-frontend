@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -17,7 +17,7 @@ import auth from "@react-native-firebase/auth";
 import RazorpayCheckout from "react-native-razorpay";
 import { RAZORPAY_KEY_ID } from "../constants";
 import { apiFetch } from "../api/client";
-import { startUltimateTrial, TrialApiError } from "../services/safeSpaceApi";
+import { startUltimateTrial, fetchPlans, TrialApiError } from "../services/safeSpaceApi";
 import { trialDaysLeft } from "../components/TrialBanner";
 import { colors } from "../theme";
 
@@ -96,11 +96,15 @@ export default function PaywallScreen() {
   const navigation = useNavigation<PaywallNavProp>();
   const { plan, refreshPlan, isTrial, trialEndsAt, trialAvailable, trialUsed } = useToken();
 
-  const activePlanKey: "pro" | "ultimate" | null = plan.startsWith("pro")
-  ? "pro"
-  : plan.startsWith("ultimate")
-  ? "ultimate"
-  : null;
+  const normalizedPlan = (plan ?? "").toLowerCase();
+  const activePlanKey: "pro" | "ultimate" | null =
+    normalizedPlan === "pro" || normalizedPlan === "pro_monthly" || normalizedPlan === "pro_yearly"
+      ? "pro"
+      : normalizedPlan === "ultimate" ||
+        normalizedPlan === "ultimate_monthly" ||
+        normalizedPlan === "ultimate_yearly"
+        ? "ultimate"
+        : null;
 
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
   const [loading, setLoading] = useState<"pro" | "ultimate" | null>(null);
@@ -108,6 +112,25 @@ export default function PaywallScreen() {
   const [paymentFailed, setPaymentFailed] = useState(false);
   const [trialLoading, setTrialLoading] = useState(false);
   const [trialError, setTrialError] = useState<string | null>(null);
+  const [catalogPrices, setCatalogPrices] = useState<Record<string, number> | null>(null);
+
+  // Prefer backend pricing when available; fall back to bundled prices offline.
+  useEffect(() => {
+    let mounted = true;
+    fetchPlans()
+      .then(({ options }) => {
+        if (!mounted || !options?.length) return;
+        const prices: Record<string, number> = {};
+        for (const o of options) {
+          if (o.tier && typeof o.amount === "number") prices[o.tier] = o.amount;
+        }
+        if (Object.keys(prices).length > 0) setCatalogPrices(prices);
+      })
+      .catch(() => {})
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleStartTrial = async () => {
     setTrialLoading(true);
@@ -379,6 +402,8 @@ export default function PaywallScreen() {
 
             {Object.entries(PLANS).map(([key, planItem]) => {
               if (key === "pro" && (activePlanKey === "pro" || activePlanKey === "ultimate")) return null;
+              const backendPrice = catalogPrices?.[`${key}_${billingCycle}`];
+              const shownPrice = backendPrice ?? (billingCycle === "monthly" ? planItem.monthlyPrice : planItem.yearlyPrice);
 
               const isPurchased = activePlanKey === key;
               const isUltimateStyle = planItem.color === colors.onPrimary;
@@ -407,7 +432,7 @@ export default function PaywallScreen() {
                         {planItem.name}
                       </Text>
                       <Text style={[styles.planPrice, planPriceColor]}>
-                        ₹{billingCycle === "monthly" ? planItem.monthlyPrice : planItem.yearlyPrice}
+                        ₹{shownPrice}
                         <Text style={styles.planPeriod}>
                           {billingCycle === "monthly" ? "/month" : "/year"}
                         </Text>
@@ -515,13 +540,13 @@ const styles = StyleSheet.create({
 
   trialBanner: {
     width: "100%",
-    backgroundColor: "#1E2230",
+    backgroundColor: colors.primaryDarker,
     borderRadius: 12,
     padding: 14,
     marginBottom: 16,
   },
-  trialBannerTitle: { color: "#FFF", fontSize: 14, fontWeight: "700" },
-  trialBannerSub: { color: "#B9C0CF", fontSize: 12, marginTop: 2 },
+  trialBannerTitle: { color: colors.onPrimary, fontSize: 14, fontWeight: "700" },
+  trialBannerSub: { color: colors.onPrimaryMuted, fontSize: 12, marginTop: 2 },
   trialCta: {
     width: "100%",
     backgroundColor: colors.onPrimary,

@@ -8,7 +8,8 @@
 // ---------------------------------------------------------------------------
 
 import RazorpayCheckout from 'react-native-razorpay';
-import { apiFetch } from '../api/client';
+import { apiFetch, ApiError } from '../api/client';
+import { BACKEND_URL } from '../constants';
 import type { PlanInfo } from '../hooks/usePlan';
 
 export type Plan = 'free' | 'pro' | 'ultimate';
@@ -96,9 +97,10 @@ export async function fetchPlans(): Promise<{ currency: string; options: PlanOpt
   try {
     const res = await apiFetch('/api/plans');
     return await parseOrThrow(res);
-  } catch {
-    // Public endpoint — retry without auth for logged-out users.
-    const { BACKEND_URL } = require('../constants');
+  } catch (e) {
+    // Only fall back to unauthenticated fetch when there is no signed-in
+    // user — otherwise we'd mask real auth/server failures.
+    if (!(e instanceof ApiError && e.status === 401)) throw e;
     const res = await fetch(`${BACKEND_URL}/api/plans`);
     return await parseOrThrow(res);
   }
@@ -166,8 +168,12 @@ export async function buyPlan(
   meta?: { name?: string; description?: string; email?: string; contact?: string; username?: string },
 ): Promise<PlanInfo> {
   const order = await createPaymentOrder(tier);
+  const orderKey = order.keyId;
+  if (!orderKey || !order.orderId) {
+    throw new Error('Payment order is missing keyId/orderId. Please try again.');
+  }
   const result = (await RazorpayCheckout.open({
-    key: (order as any).keyId || (order as any).key,
+    key: orderKey,
     order_id: order.orderId,
     amount: order.amount,
     currency: order.currency || 'INR',

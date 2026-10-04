@@ -9,15 +9,18 @@ import {
   View,
 } from 'react-native';
 
-// Guard against missing logo asset — require.resolve would throw at bundle time.
-// We use a try/catch so the splash falls back to a text logo instead of crashing.
-let logoSource: { uri: string } | Exclude<ReturnType<typeof require>, null> | null = null;
+// Logo asset is bundled statically. If the file is missing the bundle build
+// fails, so no runtime try/catch can recover — keep a direct require and
+// decide fallback by checking for an empty uri instead.
+const logoSource: any = require('../../assets/bootsplash/logo.png');
 
-try {
-  logoSource = require('../../assets/bootsplash/logo.png');
-} catch {
-  // Fallback: render a text logo instead.
-  logoSource = { uri: '' };
+function hasValidLogo(source: any): boolean {
+  if (source === null || source === undefined) return false;
+  if (typeof source === 'object' && 'uri' in source) {
+    return typeof source.uri === 'string' && source.uri.length > 0;
+  }
+  // Opaque Metro asset ID (number) is valid.
+  return true;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -65,8 +68,14 @@ export default function SplashScreen({ onFinish }: Props) {
   const screenOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const hasLogo = logoSource !== null && logoSource !== undefined;
+    const hasLogo = hasValidLogo(logoSource);
     const splashDuration = hasLogo ? 3400 : 1800;
+    let finished = false;
+    const finishOnce = () => {
+      if (finished) return;
+      finished = true;
+      onFinish();
+    };
     const ashFall = ashParticles.map(particle =>
       Animated.parallel([
         Animated.sequence([
@@ -134,15 +143,16 @@ export default function SplashScreen({ onFinish }: Props) {
           useNativeDriver: true,
         }),
       ]),
-    ]).start(({ finished }) => {
-      if (finished) {
-        onFinish();
+    ]).start(({ finished: animFinished }) => {
+      if (animFinished) {
+        clearTimeout(safetyTimer);
+        finishOnce();
       }
     });
 
     // Safety net: if the animation somehow doesn't finish (e.g. native driver
     // issue on a specific device), still advance after a hard timeout.
-    const safetyTimer = setTimeout(() => onFinish(), splashDuration + 500);
+    const safetyTimer = setTimeout(() => finishOnce(), splashDuration + 500);
     return () => clearTimeout(safetyTimer);
   }, [
     ashParticles,
@@ -194,7 +204,7 @@ export default function SplashScreen({ onFinish }: Props) {
             transform: [{ translateY: logoTranslateY }, { scale: logoScale }],
           },
         ]}>
-        logoSource ? (
+        {hasValidLogo(logoSource) ? (
           <Image
             source={logoSource}
             style={styles.logo}
@@ -205,7 +215,7 @@ export default function SplashScreen({ onFinish }: Props) {
             <Text style={styles.fallbackLogoText}>SafeSpace</Text>
             <Text style={styles.fallbackTagline}>You are not alone</Text>
           </View>
-        )
+        )}
       </Animated.View>
     </Animated.View>
   );

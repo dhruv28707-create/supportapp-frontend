@@ -133,6 +133,7 @@ const RELIGION_COLORS: Record<string, {
   jewish:    { bg: "#E8F4FD", border: "#64B5F6", activeBg: "#BBDEFB", labelColor: "#003366" },
   spiritual: { bg: "#FFFDE7", border: "#C8B560", activeBg: "#FFF176", labelColor: "#5C5000" },
   secular:   { bg: "#FAFAFA", border: "#BDBDBD", activeBg: "#F5F5F5", labelColor: "#333333" },
+  General:   { bg: "#F5F0FF", border: "#9575CD", activeBg: "#EDE0FF", labelColor: "#4A007A" },
 };
 
 const personalities = [

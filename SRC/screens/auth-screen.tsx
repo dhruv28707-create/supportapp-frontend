@@ -22,7 +22,13 @@ export default function AuthScreen() {
       [
         {
           text: "Contact Us",
-          onPress: () => Linking.openURL(`mailto:${SUPPORT_EMAIL}`),
+          onPress: async () => {
+            const url = `mailto:${SUPPORT_EMAIL}`;
+            try {
+              const supported = await Linking.canOpenURL(url);
+              if (supported) await Linking.openURL(url);
+            } catch {}
+          },
         },
         {
           text: "I Understand →",

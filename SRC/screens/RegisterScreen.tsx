@@ -16,6 +16,7 @@ import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-si
 import { useNavigation } from "@react-navigation/native";
 import { SUPPORT_EMAIL } from "../constants";
 import { colors, radius, spacing, shadow, typography } from "../theme";
+import { normalizeEmail, isValidEmail, extractGoogleIdToken, friendlyAuthError } from "../utils/auth";
 
 export default function RegisterScreen() {
   const nav = useNavigation<any>();
@@ -42,16 +43,22 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    if (!firstName || !lastName || !email || !password || !gender) {
+    const cleanEmail = normalizeEmail(email);
+    if (!firstName.trim() || !lastName.trim() || !cleanEmail || !password || !gender) {
       Alert.alert("Missing Fields", "Please fill all required fields.");
+      return;
+    }
+    if (!isValidEmail(cleanEmail)) {
+      Alert.alert("Invalid Email", "That email address looks invalid. Please check it and try again.");
       return;
     }
     if (password.length < 6) {
       Alert.alert("Weak Password", "Password must be at least 6 characters.");
       return;
     }
-    if (emergencyContact && !/^\d{10}$/.test(emergencyContact)) {
-      Alert.alert("Invalid Contact", "Emergency contact must be a 10 digit number.");
+    const digitsOnly = emergencyContact.replace(/\D/g, "");
+    if (emergencyContact && (digitsOnly.length < 7 || digitsOnly.length > 15)) {
+      Alert.alert("Invalid Contact", "Emergency contact must be a valid phone number (7–15 digits).");
       return;
     }
     if (!agreedToTerms) {
@@ -59,7 +66,7 @@ export default function RegisterScreen() {
         "Please Accept Terms",
         "You must agree to our Terms & Conditions and Privacy Policy to create an account.",
         [
-          { text: "Read Terms", onPress: () => nav.navigate("Settings", { initialPolicyTab: "terms" }) },
+          { text: "Read Terms", onPress: () => nav.navigate("Policy", { tab: "terms" }) },
           { text: "OK", style: "cancel" },
         ]
       );
@@ -68,16 +75,16 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      const userCredential = await auth().createUserWithEmailAndPassword(email, password);
+      const userCredential = await auth().createUserWithEmailAndPassword(cleanEmail, password);
       const uid = userCredential.user.uid;
 
       // `tier` is required by the Firestore rules (allow create: tier == 'free').
       await firestore().collection("users").doc(uid).set({
-        firstName,
-        lastName,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         gender,
-        email,
-        emergencyContact: emergencyContact || null,
+        email: cleanEmail,
+        emergencyContact: digitsOnly || null,
         tier: "free",
         createdAt: firestore.FieldValue.serverTimestamp(),
         agreedToTermsAt: firestore.FieldValue.serverTimestamp(),
@@ -87,7 +94,7 @@ export default function RegisterScreen() {
       // in AppNavigator — do NOT call navigation.replace("Lobby") here, the auth
       // stack has no such route and it races the auth-state switch.
     } catch (error: any) {
-      Alert.alert("Registration Failed", error.message);
+      Alert.alert("Registration Failed", friendlyAuthError(error, "Could not create your account. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -99,7 +106,7 @@ export default function RegisterScreen() {
         "Please Accept Terms",
         "You must agree to our Terms & Conditions and Privacy Policy before continuing.",
         [
-          { text: "Read Terms", onPress: () => nav.navigate("Settings", { initialPolicyTab: "terms" }) },
+          { text: "Read Terms", onPress: () => nav.navigate("Policy", { tab: "terms" }) },
           { text: "OK", style: "cancel" },
         ]
       );
@@ -110,7 +117,7 @@ export default function RegisterScreen() {
       setLoading(true);
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
-      const idToken = userInfo.data?.idToken;
+      const idToken = extractGoogleIdToken(userInfo);
       if (!idToken) {
         Alert.alert("Google Sign-In Failed", "Could not retrieve account token. Please try again.");
         return;
@@ -139,7 +146,7 @@ export default function RegisterScreen() {
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {
         // user cancelled, do nothing
       } else {
-        Alert.alert("Google Sign-In Failed", error.message);
+        Alert.alert("Google Sign-In Failed", friendlyAuthError(error, "Could not sign in with Google. Please try again."));
       }
     } finally {
       setLoading(false);
@@ -264,14 +271,14 @@ export default function RegisterScreen() {
             I agree to the{" "}
             <Text
               style={styles.termsLink}
-              onPress={() => nav.navigate("Settings", { initialPolicyTab: "terms" })}
+              onPress={() => nav.navigate("Policy", { tab: "terms" })}
             >
               Terms & Conditions
             </Text>
             {" "}and{" "}
             <Text
               style={styles.termsLink}
-              onPress={() => nav.navigate("Settings", { initialPolicyTab: "privacy" })}
+              onPress={() => nav.navigate("Policy", { tab: "privacy" })}
             >
               Privacy Policy
             </Text>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { BACKEND_URL } from '../constants';
 
 type TargetTime = number | string | null | undefined;
 
@@ -68,30 +69,37 @@ export function useOnlineStatus(cacheMs = 10_000): boolean {
   const [online, setOnline] = useState(true);
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    let abortTimer: ReturnType<typeof setTimeout> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
     const check = async () => {
+      const controller = new AbortController();
+      abortTimer = setTimeout(() => controller.abort(), 3000);
       try {
-        const controller = new AbortController();
-        timer = setTimeout(() => controller.abort(), 3000);
         // Must be GET — the backend health route only registers GET/POST/DELETE,
         // so a HEAD request returns 405 and made the app always look offline.
-        const res = await fetch('https://supportapp-backend.vercel.app/api/health', {
+        const res = await fetch(`${BACKEND_URL}/api/health`, {
           method: 'GET',
           signal: controller.signal,
         });
-        setOnline(res.ok);
+        if (!cancelled) setOnline(res.ok);
       } catch {
-        setOnline(false);
+        if (!cancelled) setOnline(false);
       } finally {
-        if (timer) clearTimeout(timer);
+        if (abortTimer) {
+          clearTimeout(abortTimer);
+          abortTimer = null;
+        }
       }
     };
 
     check();
-    timer = setInterval(check, cacheMs);
+    pollTimer = setInterval(check, cacheMs);
     return () => {
-      if (timer) clearInterval(timer);
+      cancelled = true;
+      if (abortTimer) clearTimeout(abortTimer);
+      if (pollTimer) clearInterval(pollTimer);
     };
   }, [cacheMs]);
 

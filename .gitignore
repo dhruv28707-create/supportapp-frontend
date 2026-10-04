@@ -74,6 +74,13 @@ yarn-error.log
 .env.*
 !.env.example
 
+# Firebase app config contains API keys — keep the repo private
+# or inject at build time instead of committing.
+google-services.json
+GoogleService-Info.plist
+android/app/google-services.json
+ios/GoogleService-Info.plist
+
 # Yarn
 .yarn/*
 !.yarn/patches

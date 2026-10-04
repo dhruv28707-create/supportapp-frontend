@@ -81,7 +81,7 @@ export function usePlan() {
       // Non-ok response: keep last known good values instead of resetting.
       return planRef.current;
     } catch (e) {
-      console.log('usePlan fetch error:', e);
+      if (__DEV__) console.log('usePlan fetch error:', e);
       return planRef.current;
     } finally {
       setLoading(false);
@@ -110,7 +110,9 @@ export function usePlan() {
       }
       scheduled = setTimeout(() => {
         scheduled = null;
-        refreshPlan().catch((e) => console.log('usePlan foreground refresh error:', e));
+        refreshPlan().catch((e) => {
+          if (__DEV__) console.log('usePlan foreground refresh error:', e);
+        });
       }, 1500);
     });
 

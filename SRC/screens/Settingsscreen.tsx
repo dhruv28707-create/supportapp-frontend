@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { useNavigation, useFocusEffect, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import auth from "@react-native-firebase/auth";
@@ -18,11 +18,13 @@ import { PLAN_COLORS, PLANS, PlanKey, APP_VERSION } from "../constants";
 import { useCountdown, formatRefreshIn } from "../hooks/useCountdown";
 import { apiFetch } from "../api/client";
 import { colors } from "../theme";
+import { friendlyAuthError } from "../utils/auth";
 
 type SettingsNavProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function SettingsScreen() {
   const navigation = useNavigation<SettingsNavProp>();
+  const route = useRoute<any>();
   const { plan, messagesRemaining, nextRefreshAt, expiresAt, isTrial, trialEndsAt, refreshPlan } = useToken();
   const [userProfile, setUserProfile] = useState<any>(null);
   const currentUser = auth().currentUser;
@@ -37,6 +39,15 @@ export default function SettingsScreen() {
       refreshPlan();
     }, [refreshPlan])
   );
+
+  // Backward compat: Register used to navigate to Settings with
+  // { initialPolicyTab }. Forward it to the Policy screen directly.
+  useEffect(() => {
+    const tab = route.params?.initialPolicyTab;
+    if (typeof tab === 'string' && tab.length > 0) {
+      navigation.navigate("Policy", { tab });
+    }
+  }, [navigation, route.params?.initialPolicyTab]);
 
   useEffect(() => {
     const uid = auth().currentUser?.uid;
@@ -55,11 +66,11 @@ export default function SettingsScreen() {
     // Sign In / Create Account entry point, not the settings/policy tab.
     // The onAuthStateChanged listener in AppNavigator will fire after
     // signOut() and re-render the unauth stack (Auth/Login/Register).
-    // We reset to Lobby (auth stack root) so the current screen is cleared;
-    // when onAuthStateChanged fires, the unauth stack takes over.
+    // Reset to "Auth" (the unauth stack root) — "Lobby" does not exist
+    // there and would crash the reset.
     navigation.reset({
       index: 0,
-      routes: [{ name: "Lobby" }],
+      routes: [{ name: "Auth" }],
     });
   };
 
@@ -83,7 +94,7 @@ export default function SettingsScreen() {
               await auth().signOut();
               navigateToAuthRoot();
             } catch (error: any) {
-              Alert.alert("Error", error.message);
+              Alert.alert("Error", friendlyAuthError(error, "Could not log you out. Please try again."));
             }
           },
         },
@@ -154,7 +165,7 @@ export default function SettingsScreen() {
                       await auth().signOut();
                       navigateToAuthRoot();
                     } catch (error: any) {
-                      Alert.alert("Error", error.message);
+                      Alert.alert("Error", friendlyAuthError(error, "Could not delete your account. Please try again."));
                     }
                   },
                 },
