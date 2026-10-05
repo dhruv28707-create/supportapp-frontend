@@ -13,7 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
-import { TIER_UNLOCKS, PlanKey } from "../constants";
+import { TIER_UNLOCKS, PlanKey, isStrangerPersonality } from "../constants";
 import TrialBanner from "../components/TrialBanner";
 import { colors } from "../theme";
 
@@ -110,6 +110,13 @@ const PERSONALITY_COLORS: Record<string, {
     labelColor: "#880E4F",
     selectedLabelColor: "#6A0033",
   },
+  Stranger: {
+    bg: "#ECEFF1",
+    border: "#78909C",
+    selectedBg: "#CFD8DC",
+    labelColor: "#263238",
+    selectedLabelColor: "#102027",
+  },
   Custom: {
     bg: "#F5F0F0",
     border: colors.primary,
@@ -148,6 +155,7 @@ const personalities = [
   { id: "Wife",        emoji: "👰", label: "Wife"        },
   { id: "Boyfriend",   emoji: "💙", label: "Boyfriend"   },
   { id: "Girlfriend",  emoji: "🩷", label: "Girlfriend"  },
+  { id: "Stranger",    emoji: "🎭", label: "Stranger", sub: "Anonymous · No history", free: true },
 ];
 
 const religions = [
@@ -162,8 +170,7 @@ const religions = [
 
 export default function LobbyScreen() {
   const navigation = useNavigation<LobbyNavProp>();
-  const { plan, messagesRemaining } = useToken();
-  const isUltimate = plan === 'ultimate';
+  const { plan } = useToken();
   const [selected, setSelected] = useState("Father");
   const [showReligionModal, setShowReligionModal] = useState(false);
   const [selectedReligion, setSelectedReligion] = useState("spiritual");
@@ -172,7 +179,8 @@ export default function LobbyScreen() {
   const unlockedPersonalities = TIER_UNLOCKS[planKey] ?? TIER_UNLOCKS.free;
 
   const handlePersonalitySelect = (id: string) => {
-    if (!unlockedPersonalities.includes(id)) {
+    // Stranger is free on every plan — never gate it behind the paywall.
+    if (!isStrangerPersonality(id) && !unlockedPersonalities.includes(id)) {
       Alert.alert(
         "Locked 🔒",
         "This personality is not available on your current plan. Upgrade to unlock!",
@@ -195,6 +203,8 @@ export default function LobbyScreen() {
   };
 
   const handleChat = () => {
+    // Religion picker is Guide-only. Stranger must never carry a religionSubType
+    // (backend force-clears it to prevent Guide_hindu-style smuggling).
     if (selected === "Guide") {
       navigation.navigate("chat", { personality: "Guide", religionSubType: selectedReligion });
     } else {
@@ -236,16 +246,8 @@ export default function LobbyScreen() {
 
       <View style={styles.content}>
         <TrialBanner compact />
-        <TouchableOpacity
-          style={styles.quotaBar}
-          onPress={() => navigation.navigate("Paywall")}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.quotaText}>
-            💬 {messagesRemaining} {messagesRemaining === 1 ? "message" : "messages"} left
-          </Text>
-          {!isUltimate && <Text style={styles.quotaUpgrade}>Upgrade →</Text>}
-        </TouchableOpacity>
+        {/* Quota lives in Settings > Usage only (backend uiHints.hideQuotaInLobby).
+            Lobby shows no messages-left / refill countdown. */}
 
         <Text style={styles.sectionTitle}>Choose Your Companion</Text>
         <Text style={styles.sectionSub}>Who do you want to talk to today?</Text>
@@ -257,10 +259,11 @@ export default function LobbyScreen() {
 
           {personalities.map((p) => {
             const isSelected = selected === p.id;
-            const isLocked = !unlockedPersonalities.includes(p.id);
+            const isLocked = !isStrangerPersonality(p.id) && !unlockedPersonalities.includes(p.id);
             const cardColors = getCardColors(p.id, isSelected);
 
             const cardStyle = { backgroundColor: cardColors.bg, borderColor: cardColors.border };
+            const isStranger = isStrangerPersonality(p.id);
 
             return (
               <TouchableOpacity
@@ -279,10 +282,18 @@ export default function LobbyScreen() {
                     <Text style={styles.proText}>🔒</Text>
                   </View>
                 )}
+                {isStranger && (
+                  <View style={styles.freeBadge}>
+                    <Text style={styles.freeBadgeText}>FREE</Text>
+                  </View>
+                )}
                 <Text style={styles.cardEmoji}>{p.emoji}</Text>
                 <Text style={[styles.cardLabel, { color: cardColors.labelColor }]}>
                   {p.label}
                 </Text>
+                {isStranger && (
+                  <Text style={styles.strangerSub}>Anonymous · No history</Text>
+                )}
                 {isSelected && p.id === "Guide" && (
                   <Text style={[styles.religionTag, { color: RELIGION_COLORS[selectedReligion]?.border ?? "#9575CD" }]}>
                     {getReligionLabel(selectedReligion)}
@@ -297,10 +308,13 @@ export default function LobbyScreen() {
       <View style={styles.footer}>
         <TouchableOpacity style={styles.startButton} onPress={handleChat} activeOpacity={0.85}>
           <Text style={styles.startButtonText}>
-            Start Chat {selected === "Guide" ? `· ${getReligionLabel(selectedReligion)}` : ""}
+            Start Chat {selected === "Guide" ? `· ${getReligionLabel(selectedReligion)}` : selected === "Stranger" ? "· Anonymous" : ""}
           </Text>
           <Text style={styles.startArrow}>→</Text>
         </TouchableOpacity>
+        {selected === "Stranger" && (
+          <Text style={styles.strangerNote}>No history is kept for Stranger chats.</Text>
+        )}
       </View>
 
       <Modal
@@ -402,20 +416,6 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingHorizontal: 20,
   },
-  quotaBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.onPrimary,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 16,
-    gap: 8,
-  },
-  quotaText: { fontSize: 13, fontWeight: "600", color: colors.text },
-  quotaUpgrade: { fontSize: 12, fontWeight: "700", color: colors.primary },
 
   sectionTitle: {
     fontSize: 20,
@@ -465,6 +465,18 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   proText: { fontSize: 10, fontWeight: "800", color: "#FFF", letterSpacing: 0.5 },
+  freeBadge: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "#2E7D32",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  freeBadgeText: { fontSize: 10, fontWeight: "800", color: "#FFF", letterSpacing: 0.5 },
+  strangerSub: { fontSize: 11, marginTop: 4, fontWeight: "500", color: "#546E7A", textAlign: "center" },
+  strangerNote: { fontSize: 12, color: colors.textMuted, textAlign: "center", marginTop: 8 },
   footer: {
     position: "absolute",
     bottom: 0,

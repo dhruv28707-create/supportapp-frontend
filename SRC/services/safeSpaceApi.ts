@@ -28,6 +28,8 @@ export interface PlanState {
   messagesUsed: number;
   messagesTotal: number;
   quotaPercent: number;
+  refillInMs: number | null;
+  refreshHours: number | null;
 }
 
 export interface PlanOption {
@@ -100,6 +102,30 @@ function toPlanState(data: any): PlanState {
     messagesUsed,
     messagesTotal,
     quotaPercent,
+    refillInMs: typeof data?.refillInMs === 'number' ? data.refillInMs : null,
+    refreshHours: typeof data?.refreshHours === 'number' ? data.refreshHours : null,
+  };
+}
+
+export interface UsageState extends PlanState {
+  uiHints: {
+    showQuotaInUsageOnly: boolean;
+    hideQuotaInLobby: boolean;
+    hideQuotaInChat: boolean;
+  } | null;
+}
+
+function toUsageState(data: any): UsageState {
+  const base = toPlanState(data);
+  return {
+    ...base,
+    uiHints: data?.uiHints
+      ? {
+          showQuotaInUsageOnly: data.uiHints.showQuotaInUsageOnly ?? true,
+          hideQuotaInLobby: data.uiHints.hideQuotaInLobby ?? true,
+          hideQuotaInChat: data.uiHints.hideQuotaInChat ?? true,
+        }
+      : null,
   };
 }
 
@@ -108,6 +134,13 @@ export async function fetchPlan(): Promise<PlanState> {
   const res = await apiFetch('/api/user/plan');
   const data = await parseOrThrow<any>(res);
   return toPlanState(data);
+}
+
+/** GET /api/user/usage — plan, quota, refill + uiHints. New clients should use this. */
+export async function fetchUsage(): Promise<UsageState> {
+  const res = await apiFetch('/api/user/usage');
+  const data = await parseOrThrow<any>(res);
+  return toUsageState(data);
 }
 
 /** GET /api/plans — public catalog (no auth needed, but apiFetch requires a user; falls back to plain fetch). */

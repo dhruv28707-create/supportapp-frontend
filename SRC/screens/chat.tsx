@@ -18,7 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import firestore from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
 import { useToken } from "../context/TokenContext";
-import { CRISIS_HELPLINES } from "../constants";
+import { CRISIS_HELPLINES, isStrangerPersonality } from "../constants";
 import { apiFetch } from "../api/client";
 import { useCountdown, formatCountdown, useOnlineStatus } from "../hooks/useCountdown";
 import { colors } from "../theme";
@@ -265,6 +265,18 @@ const PERSONALITY_THEME: Record<string, {
     sendBtn: "#C2185B",
     typingColor: "#AD1457",
   },
+  Stranger: {
+    headerBg: "#455A64",
+    headerText: "#FFFFFF",
+    headerSub: "#CFD8DC",
+    safeBg: "#455A64",
+    aiBubbleBg: "#ECEFF1",
+    aiBubbleText: "#263238",
+    avatarBg: "#78909C",
+    inputBorder: "#78909C",
+    sendBtn: "#455A64",
+    typingColor: "#546E7A",
+  },
 };
 
 const DEFAULT_THEME = {
@@ -300,6 +312,7 @@ const welcomeMessages: Record<string, string> = {
   Girlfriend: "Hey baby, I'm here. Talk to me, what's wrong?",
   Husband: "I'm here jaan. Tell me everything, what's on your mind?",
   Wife: "I'm here sweetheart. Talk to me, what's going on?",
+  Stranger: "Hey — I'm just a stranger passing by. What's on your mind? Nothing you say here is kept.",
 };
 
 const personalityEmoji: Record<string, string> = {
@@ -322,6 +335,7 @@ const personalityEmoji: Record<string, string> = {
   Girlfriend: "🩷",
   Husband: "💍",
   Wife: "👰",
+  Stranger: "🎭",
 };
 
 type Message = {
@@ -356,14 +370,19 @@ export default function ChatScreen() {
 
   const isLegacyGuide = typeof rawPersonalityParam === "string" && rawPersonalityParam.startsWith("Guide_");
   const personality = isLegacyGuide ? "Guide" : rawPersonalityParam;
-  const religionSubType = isLegacyGuide
-    ? rawPersonalityParam.split("_")[1]
-    : rawReligionSubTypeParam;
+  // Stranger must never carry a religion — backend force-clears it.
+  const religionSubType = isStrangerPersonality(personality)
+    ? undefined
+    : isLegacyGuide
+      ? rawPersonalityParam.split("_")[1]
+      : rawReligionSubTypeParam;
+
+  const isStranger = isStrangerPersonality(personality);
 
   const themeKey = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
   const theme = PERSONALITY_THEME[themeKey] ?? DEFAULT_THEME;
 
-  const { refreshPlan, messagesRemaining, plan } = useToken();
+  const { refreshPlan } = useToken();
 
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -397,9 +416,12 @@ export default function ChatScreen() {
     }, [refreshPlan])
   );
 
-  const displayName = personality === "Guide" && religionSubType
-    ? `Guide · ${religionSubType.charAt(0).toUpperCase() + religionSubType.slice(1)}`
-    : personality;
+  const displayName = isStranger
+    ? "Anonymous stranger"
+    : personality === "Guide" && religionSubType
+      ? `Guide · ${religionSubType.charAt(0).toUpperCase() + religionSubType.slice(1)}`
+      : personality;
+  const headerSub = isStranger ? "No history is kept" : "Here for you";
 
   const buildConversationTitle = (text: string) => {
     const cleanText = text.replace(/\s+/g, " ").trim();
@@ -408,6 +430,8 @@ export default function ChatScreen() {
   };
 
   const ensureConversation = async (uid: string, firstMessage: string) => {
+    // Stranger chats are never persisted — backend returns storeHistory:false.
+    if (isStranger) return undefined;
     if (conversationId) return conversationId;
     const newConversationRef = conversationsRef(uid).doc();
     const storedPersonality = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
@@ -446,8 +470,9 @@ export default function ChatScreen() {
       religionSubType,
     };
     setMessages([welcome]);
-    setConversationId(initialConversationId);
-  }, [initialConversationId, personality, themeKey, religionSubType]);
+    // Stranger never reopens a saved conversation — always start fresh.
+    setConversationId(isStranger ? undefined : initialConversationId);
+  }, [initialConversationId, personality, themeKey, religionSubType, isStranger]);
 
   useEffect(() => {
     const uid = auth().currentUser?.uid;
@@ -470,7 +495,8 @@ export default function ChatScreen() {
           if (doc.exists()) setUserProfile(doc.data());
         });
 
-      if (conversationId) {
+      // Stranger: no history listener — nothing is saved, nothing to load.
+      if (!isStranger && conversationId) {
         unsubscribeHistory = conversationMessagesRef(uid, conversationId)
           .orderBy("createdAt", "asc")
           .onSnapshot(
@@ -502,7 +528,7 @@ export default function ChatScreen() {
       clearTimeout(timer);
       unsubscribeHistory?.();
     };
-  }, [conversationId, personality, themeKey, religionSubType]);
+  }, [conversationId, personality, themeKey, religionSubType, isStranger]);
 
   const crisisPhrases = [
     "want to die", "kill myself", "end my life", "suicide",
@@ -581,16 +607,21 @@ export default function ChatScreen() {
     try {
       // Persistence must never block the reply: if Firestore is unreachable
       // (rules, offline, quota) the user should still get an answer.
+      // Stranger chats skip persistence entirely (storeHistory:false).
       let activeConversationId: string | undefined = conversationId;
-      try {
-        activeConversationId = await ensureConversation(uid, currentInput);
-      } catch (e: any) {
-        console.warn('ensureConversation failed — continuing without history:', e?.message);
-        // do NOT rethrow
+      if (!isStranger) {
+        try {
+          activeConversationId = await ensureConversation(uid, currentInput);
+        } catch (e: any) {
+          console.warn('ensureConversation failed — continuing without history:', e?.message);
+          // do NOT rethrow
+        }
+      } else {
+        activeConversationId = undefined;
       }
       const storedPersonality = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
 
-      if (activeConversationId) {
+      if (!isStranger && activeConversationId) {
         try {
           await conversationMessagesRef(uid, activeConversationId).doc(userMessage.id).set({
             text: userMessage.text,
@@ -612,12 +643,14 @@ export default function ChatScreen() {
         }
       }
 
-      // Backend request payload matching contract exactly
+      // Backend request payload matching contract exactly.
+      // Stranger: send only {message, personality:"Stranger"} — no history,
+      // no religionSubType, no prior turns.
       const requestBody: { message: string; personality?: string; religionSubType?: string } = {
         message: currentInput,
-        personality: personality,
+        personality: isStranger ? "Stranger" : personality,
       };
-      if (personality === "Guide" && religionSubType) {
+      if (!isStranger && personality === "Guide" && religionSubType) {
         requestBody.religionSubType = religionSubType;
       }
 
@@ -678,10 +711,12 @@ export default function ChatScreen() {
         text: aiText,
         sender: "ai",
         personality: echoedPersonality,
-        religionSubType: data.religionSubType || religionSubType,
+        religionSubType: isStranger ? undefined : (data.religionSubType || religionSubType),
       };
 
-      if (activeConversationId) {
+      // Backend may confirm storeHistory:false / noHistory:true for Stranger.
+      // Either way, never persist Stranger turns locally or in Firestore.
+      if (!isStranger && activeConversationId) {
         try {
           await conversationMessagesRef(uid, activeConversationId).doc(aiReply.id).set({
             text: aiReply.text,
@@ -779,7 +814,7 @@ export default function ChatScreen() {
               : [styles.aiBubble, { backgroundColor: theme.aiBubbleBg }],
           ]}
         >
-          {item.sender === "ai" && (
+          {item.sender === "ai" && !isStranger && (
             <Text style={[styles.echoedTag, { color: theme.typingColor }]}>
               {itemPersona}
             </Text>
@@ -814,17 +849,27 @@ export default function ChatScreen() {
 
         <View style={styles.headerMiddle}>
           <Text style={[styles.headerTitle, { color: theme.headerText }]}>{displayName}</Text>
-          <Text style={[styles.headerSub, { color: theme.headerSub }]}>Here for you</Text>
+          <Text style={[styles.headerSub, { color: theme.headerSub }]}>{headerSub}</Text>
         </View>
 
-        <TouchableOpacity
-          onPress={() => navigation.navigate("ConversationHistory", { filterPersonality: personality })}
-          style={styles.historyBtn}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={styles.historyBtnIcon}>📋</Text>
-        </TouchableOpacity>
+        {!isStranger && (
+          <TouchableOpacity
+            onPress={() => navigation.navigate("ConversationHistory", { filterPersonality: personality })}
+            style={styles.historyBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.historyBtnIcon}>📋</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      {isStranger && (
+        <View style={styles.strangerBanner}>
+          <Text style={styles.strangerBannerText}>
+            🎭 You're talking to an anonymous stranger. No history is kept for Stranger chats.
+          </Text>
+        </View>
+      )}
 
       {!isOnline && (
         <View style={[styles.offlineBanner, { borderColor: theme.inputBorder }]}>
@@ -928,20 +973,10 @@ export default function ChatScreen() {
               <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>Dismiss</Text>
             </TouchableOpacity>
           </View>
-        ) : (
-          <TouchableOpacity
-            style={[styles.quotaBar, { borderColor: theme.inputBorder }]}
-            onPress={() => navigation.navigate("Paywall")}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.quotaText, { color: theme.typingColor }]}>
-              💬 {messagesRemaining} {messagesRemaining === 1 ? "message" : "messages"} left
-            </Text>
-            {plan !== 'ultimate' && (
-              <Text style={[styles.quotaUpgrade, { color: theme.sendBtn }]}>Upgrade →</Text>
-            )}
-          </TouchableOpacity>
-        )}
+        ) : null}
+        {/* Quota lives in Settings > Usage only (backend uiHints.hideQuotaInChat).
+            Chat shows no messages-left / refill countdown — only the 429
+            limitReached error states above. */}
 
         <View style={styles.inputContainer}>
           <TextInput
@@ -1051,20 +1086,17 @@ const styles = StyleSheet.create({
   },
   offlineIcon: { fontSize: 16 },
   offlineText: { fontSize: 12, fontWeight: "500" },
-  quotaBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 12,
-    marginTop: 6,
+  strangerBanner: {
+    marginHorizontal: 16,
+    marginTop: 8,
     paddingHorizontal: 14,
     paddingVertical: 9,
-    borderRadius: 14,
-    backgroundColor: colors.onPrimary,
+    borderRadius: 12,
+    backgroundColor: "#ECEFF1",
     borderWidth: 1,
-    gap: 8,
+    borderColor: "#B0BEC5",
   },
-  quotaText: { fontSize: 13, fontWeight: "600" },
-  quotaUpgrade: { fontSize: 12, fontWeight: "700" },
+  strangerBannerText: { fontSize: 12, color: "#37474F", fontWeight: "500", textAlign: "center" },
   limitBanner: {
     marginHorizontal: 12,
     marginTop: 6,

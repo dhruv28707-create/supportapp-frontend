@@ -20,6 +20,8 @@ const TokenContext = createContext<TokenContextType>({
   messagesUsed: 0,
   messagesTotal: 0,
   quotaPercent: 0,
+  refillInMs: null,
+  refreshHours: null,
   loading: true,
   refreshPlan: async () => ({
     plan: 'free',
@@ -35,6 +37,8 @@ const TokenContext = createContext<TokenContextType>({
     messagesUsed: 0,
     messagesTotal: 0,
     quotaPercent: 0,
+    refillInMs: null,
+    refreshHours: null,
   }),
 });
 
@@ -56,6 +60,8 @@ export const TokenProvider = ({ children }: { children: React.ReactNode }) => {
       messagesUsed: planInfo.messagesUsed,
       messagesTotal: planInfo.messagesTotal,
       quotaPercent: planInfo.quotaPercent,
+      refillInMs: planInfo.refillInMs,
+      refreshHours: planInfo.refreshHours,
       loading: planInfo.loading,
       refreshPlan: planInfo.refreshPlan,
     }),

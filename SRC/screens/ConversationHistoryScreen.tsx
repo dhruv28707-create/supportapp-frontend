@@ -33,6 +33,7 @@ const personalityEmoji: Record<string, string> = {
   Guide_islamic: "☪️", Guide_hindu: "🕉️", Guide_christian: "✝️",
   Guide_buddhist: "☸️", Guide_jewish: "✡️", Guide_spiritual: "✨", Guide_secular: "🌿",
   Boyfriend: "💙", Girlfriend: "🩷", Husband: "💍", Wife: "👰",
+  Stranger: "🎭",
   BestFriend: "💯", BF: "💙", GF: "🩷", Guide_Muslim: "☪️", Guide_Hindu: "🕉️", Guide_Christian: "✝️",
 };
 
@@ -42,6 +43,7 @@ const personalityColor: Record<string, string> = {
   Guide_islamic: "#66BB6A", Guide_hindu: "#FF9999", Guide_christian: "#CE93D8",
   Guide_buddhist: "#A1887F", Guide_jewish: "#64B5F6", Guide_spiritual: "#C8B560", Guide_secular: "#BDBDBD",
   Boyfriend: "#5B9BD5", Girlfriend: "#E91E8C", Husband: "#5C6BC0", Wife: "#E91E63",
+  Stranger: "#78909C",
   BestFriend: "#FFAB8F", BF: "#5B9BD5", GF: "#E91E8C", Guide_Muslim: "#66BB6A", Guide_Hindu: "#FF9999", Guide_Christian: "#CE93D8",
 };
 

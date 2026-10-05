@@ -219,6 +219,10 @@ export default function SettingsScreen() {
         <View style={styles.sectionLabel}>
           <Text style={styles.sectionLabelText}>SUBSCRIPTION</Text>
         </View>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate("Usage")}
+        >
         <View style={[styles.planCard, { borderColor: planStyle.border, backgroundColor: planStyle.bg }]}>
           <View style={styles.planRow}>
             <View style={styles.planInfoWrap}>
@@ -247,6 +251,7 @@ export default function SettingsScreen() {
                   Ultimate trial ends on {new Date(trialEndsAt).toLocaleDateString()}
                 </Text>
               )}
+              <Text style={styles.viewUsage}>View usage →</Text>
             </View>
             {planKey === 'free' && (
               <TouchableOpacity
@@ -259,6 +264,7 @@ export default function SettingsScreen() {
             )}
           </View>
         </View>
+        </TouchableOpacity>
           </>
         )}
 
@@ -374,6 +380,7 @@ const styles = StyleSheet.create({
   },
   usageBarFill: { height: 6, borderRadius: 3, backgroundColor: colors.primary },
   planExpires: { fontSize: 12, color: colors.textSubtle, marginTop: 2, fontWeight: "600" },
+  viewUsage: { fontSize: 12, color: colors.primary, marginTop: 6, fontWeight: "700" },
   upgradeBtn: {
     backgroundColor: colors.primary,
     borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,

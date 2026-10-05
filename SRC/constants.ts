@@ -48,9 +48,26 @@ export const VALID_PERSONALITIES = [
   'Wife',
   'Boyfriend',
   'Girlfriend',
+  'Stranger',
 ] as const;
 
 export type Personality = typeof VALID_PERSONALITIES[number];
+
+/** Anonymous stranger persona — free on all plans, no history kept. Mirrors backend. */
+export const STRANGER_PERSONALITY = 'Stranger' as const;
+
+export function isStrangerPersonality(personality: string | null | undefined): boolean {
+  return personality === STRANGER_PERSONALITY;
+}
+
+/** Personalities available on every plan without a paywall (includes Stranger). */
+export const FREE_PERSONALITIES: readonly string[] = [
+  'Father',
+  'Mother',
+  'Brother',
+  'Sister',
+  'Stranger',
+];
 
 export const VALID_RELIGIONS = [
   'islamic',
@@ -65,9 +82,9 @@ export const VALID_RELIGIONS = [
 export type ReligionSubType = typeof VALID_RELIGIONS[number];
 
 export const TIER_UNLOCKS: Record<PlanKey, string[]> = {
-  free: ['Father', 'Mother', 'Brother', 'Sister'],
-  pro: ['Father', 'Mother', 'Brother', 'Sister', 'Friend', 'Best Friend', 'Mentor', 'Guide'],
-  ultimate: ['Father', 'Mother', 'Brother', 'Sister', 'Friend', 'Best Friend', 'Mentor', 'Guide', 'Boyfriend', 'Girlfriend', 'Husband', 'Wife'],
+  free: ['Father', 'Mother', 'Brother', 'Sister', 'Stranger'],
+  pro: ['Father', 'Mother', 'Brother', 'Sister', 'Friend', 'Best Friend', 'Mentor', 'Guide', 'Stranger'],
+  ultimate: ['Father', 'Mother', 'Brother', 'Sister', 'Friend', 'Best Friend', 'Mentor', 'Guide', 'Boyfriend', 'Girlfriend', 'Husband', 'Wife', 'Stranger'],
 };
 
 export const PLAN_COLORS: Record<string, { bg: string; text: string; border: string }> = {

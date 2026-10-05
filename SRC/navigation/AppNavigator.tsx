@@ -12,6 +12,7 @@ import PaywallScreen from "../screens/paywall";
 import ConversationHistoryScreen from "../screens/ConversationHistoryScreen";
 import SettingsScreen from "../screens/Settingsscreen";
 import PolicyScreen from "../screens/Policyscreen";
+import UsageScreen from "../screens/UsageScreen";
 
 export type RootStackParamList = {
   Auth: undefined;
@@ -23,6 +24,7 @@ export type RootStackParamList = {
   Policy: { tab: string };
   ConversationHistory: { filterPersonality? : string} | undefined;
   Settings: { initialPolicyTab?: string } | undefined;
+  Usage: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -65,6 +67,7 @@ export default function AppNavigator() {
           <Stack.Screen name="Paywall" component={PaywallScreen} />
           <Stack.Screen name="ConversationHistory" component={ConversationHistoryScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="Usage" component={UsageScreen} />
           <Stack.Screen name="Policy" component={PolicyScreen} />
         </>
       ) : (
@@ -73,6 +76,7 @@ export default function AppNavigator() {
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="Usage" component={UsageScreen} />
           <Stack.Screen name="Policy" component={PolicyScreen} />
         </>
       )}

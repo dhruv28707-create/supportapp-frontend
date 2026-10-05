@@ -19,6 +19,10 @@ export interface PlanInfo {
   messagesTotal: number;
   /** 0..1 fraction of quota consumed. */
   quotaPercent: number;
+  /** Ms until refill (from /api/user/usage). Null on older backends. */
+  refillInMs: number | null;
+  /** Refresh window in hours (from /api/user/usage). */
+  refreshHours: number | null;
 }
 
 const DEFAULT_PLAN: PlanInfo = {
@@ -35,6 +39,8 @@ const DEFAULT_PLAN: PlanInfo = {
   messagesUsed: 0,
   messagesTotal: 0,
   quotaPercent: 0,
+  refillInMs: null,
+  refreshHours: null,
 };
 
 /**
@@ -66,10 +72,23 @@ export function usePlan() {
       return DEFAULT_PLAN;
     }
     try {
-      // The backend reads the user from the Bearer token — no uid param needed.
-      const res = await apiFetch(`/api/user/plan`);
-      const data = await res.json();
-      if (res.ok) {
+      // New clients use GET /api/user/usage (plan + quota + refill + uiHints).
+      // Fall back to legacy GET /api/user/plan for older backends.
+      let data: any = null;
+      try {
+        const res = await apiFetch(`/api/user/usage`);
+        data = await res.json();
+        if (!res.ok) throw new Error(`usage ${res.status}`);
+      } catch {
+        // The backend reads the user from the Bearer token — no uid param needed.
+        const res = await apiFetch(`/api/user/plan`);
+        data = await res.json();
+        if (!res.ok) {
+          // Non-ok response: keep last known good values instead of resetting.
+          return planRef.current;
+        }
+      }
+      {
         const isTrial = data.isTrial ?? false;
         const trialUsed = data.trialUsed ?? false;
         const messagesRemaining = data.messagesRemaining ?? 0;
@@ -95,16 +114,18 @@ export function usePlan() {
           // older backends that only send isTrial/trialUsed.
           trialAvailable: data.trialAvailable ?? (!isTrial && !trialUsed),
           // Gate the refill countdown: only show it when the backend says so.
+          // nextRefreshAt/refillInMs are always present for compat — ignore
+          // them unless showRefillTimer === true.
           showRefillTimer: data.showRefillTimer ?? false,
           messagesUsed,
           messagesTotal,
           quotaPercent,
+          refillInMs: typeof data.refillInMs === 'number' ? data.refillInMs : null,
+          refreshHours: typeof data.refreshHours === 'number' ? data.refreshHours : null,
         };
         setPlanInfo(fresh);
         return fresh;
       }
-      // Non-ok response: keep last known good values instead of resetting.
-      return planRef.current;
     } catch (e) {
       if (__DEV__) console.log('usePlan fetch error:', e);
       return planRef.current;
