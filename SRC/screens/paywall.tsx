@@ -99,6 +99,7 @@ export default function PaywallScreen() {
   const [activating, setActivating] = useState(false);
   const [paymentFailed, setPaymentFailed] = useState(false);
   const [trialLoading, setTrialLoading] = useState(false);
+  const [trialCooling, setTrialCooling] = useState(false);
   const [trialError, setTrialError] = useState<string | null>(null);
   const [catalogPrices, setCatalogPrices] = useState<Record<string, number> | null>(null);
   const [catalogMeta, setCatalogMeta] = useState<Record<string, { messageLimit: number; refreshHours: number }> | null>(null);
@@ -137,17 +138,25 @@ export default function PaywallScreen() {
   }, []);
 
   const handleStartTrial = async () => {
+    if (trialLoading || trialCooling) return;
     setTrialLoading(true);
     setTrialError(null);
     try {
       await startUltimateTrial();
       await refreshPlan();
     } catch (error: any) {
+      const code = error instanceof TrialApiError ? error.code : undefined;
+      const status = error instanceof TrialApiError ? error.status : undefined;
       if (
-        error instanceof TrialApiError &&
-        (error.code === 'trial_already_used' || error.code === 'already_subscribed')
+        code === 'trial_already_used' ||
+        code === 'already_subscribed' ||
+        code === 'trial_not_eligible'
       ) {
         await refreshPlan().catch(() => {});
+      } else if (status === 429) {
+        setTrialCooling(true);
+        setTrialError('Too many attempts. Please try again in a bit.');
+        setTimeout(() => setTrialCooling(false), 30000);
       } else {
         setTrialError(error?.message || 'Could not start trial');
       }
@@ -180,10 +189,17 @@ export default function PaywallScreen() {
         body: JSON.stringify({ tier: tierKey }),
       });
 
-      const orderData = await orderRes.json();
+      const orderData = await orderRes.json().catch(() => ({}));
+
+      if (orderRes.status === 429) {
+        throw new Error(
+          orderData?.error ||
+            "Too many pending orders. Please complete or wait for your open checkout before creating a new one."
+        );
+      }
 
       if (!orderRes.ok) {
-        throw new Error(orderData.error || "Failed to create order");
+        throw new Error(orderData?.error || "Failed to create order");
       }
 
       const options = {
@@ -347,7 +363,7 @@ export default function PaywallScreen() {
             <TouchableOpacity
               style={styles.trialCtaBtn}
               onPress={handleStartTrial}
-              disabled={trialLoading}
+              disabled={trialLoading || trialCooling}
               activeOpacity={0.85}
             >
               {trialLoading ? (

@@ -20,6 +20,7 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
   const { isTrial, trialEndsAt, trialAvailable, refreshPlan } = useToken();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cooling, setCooling] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
@@ -36,17 +37,25 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
   };
 
   const onStartTrial = async () => {
+    if (busy || cooling) return;
     setBusy(true);
     setError(null);
     try {
       await startUltimateTrial();
       await refreshPlan();
     } catch (e: any) {
+      const code = e instanceof TrialApiError ? e.code : undefined;
+      const status = e instanceof TrialApiError ? e.status : undefined;
       if (
-        e instanceof TrialApiError &&
-        (e.code === 'trial_already_used' || e.code === 'already_subscribed')
+        code === 'trial_already_used' ||
+        code === 'already_subscribed' ||
+        code === 'trial_not_eligible'
       ) {
         await refreshPlan().catch(() => {});
+      } else if (status === 429) {
+        setCooling(true);
+        setError('Too many attempts. Please try again in a bit.');
+        setTimeout(() => setCooling(false), 30000);
       } else {
         setError(e?.message || 'Could not start trial');
       }
@@ -73,7 +82,7 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
         <Text style={styles.ctaTitle}>Try Ultimate free for 5 days</Text>
         <Text style={styles.ctaSub}>All 13 personas and 200 messages every 2 hours. No payment required.</Text>
         {error && <Text style={styles.error}>{error}</Text>}
-        <TouchableOpacity style={styles.ctaBtn} onPress={onStartTrial} disabled={busy} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.ctaBtn} onPress={onStartTrial} disabled={busy || cooling} activeOpacity={0.85}>
           {busy ? (
             <ActivityIndicator color={colors.onPrimary} />
           ) : (
