@@ -37,9 +37,6 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await auth().signInWithEmailAndPassword(cleanEmail, password);
-      // Navigation to the app stack happens automatically via onAuthStateChanged
-      // in AppNavigator — do NOT call navigation.replace("Lobby") here, the auth
-      // stack has no such route and it races the auth-state switch.
     } catch (error: any) {
       Alert.alert("Login Failed", friendlyAuthError(error, "Could not sign you in. Please try again."));
     } finally {
@@ -61,10 +58,29 @@ export default function LoginScreen() {
       const userCredential = await auth().signInWithCredential(googleCredential);
       const uid = userCredential.user.uid;
 
-      // If first time signing in with Google, create user doc.
-      // `tier` is required by the Firestore rules (allow create: tier == 'free').
       const userDoc = await firestore().collection("users").doc(uid).get();
       if (!userDoc.exists()) {
+        const accepted = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            "Terms & Privacy",
+            "To create your account you need to accept our Terms & Conditions and Privacy Policy.",
+            [
+              {
+                text: "Read Terms",
+                onPress: () => {
+                  nav.navigate("Policy", { tab: "terms" });
+                  resolve(false);
+                },
+              },
+              { text: "Decline", style: "cancel", onPress: () => resolve(false) },
+              { text: "Accept", onPress: () => resolve(true) },
+            ]
+          );
+        });
+        if (!accepted) {
+          await auth().signOut();
+          return;
+        }
         const displayName = userCredential.user.displayName || "";
         const nameParts = displayName.split(" ");
         await firestore().collection("users").doc(uid).set({
@@ -91,13 +107,11 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.appName}>SafeSpace</Text>
         <Text style={styles.appTagline}>You are not alone</Text>
       </View>
 
-      {/* Form area */}
       <KeyboardAvoidingView
         style={styles.formWrapper}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -146,14 +160,12 @@ export default function LoginScreen() {
             </Text>
           </TouchableOpacity>
 
-          {/* Divider */}
           <View style={styles.divider}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>or</Text>
             <View style={styles.dividerLine} />
           </View>
 
-          {/* Google Sign-In */}
           <TouchableOpacity
             style={styles.googleBtn}
             onPress={handleGoogleSignIn}

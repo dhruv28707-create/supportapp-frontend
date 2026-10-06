@@ -12,8 +12,9 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { colors } from "../theme";
 
-// ✅ Typed navigation
 type PolicyNavProp = NativeStackNavigationProp<RootStackParamList>;
+
+const VALID_TABS = ["terms", "privacy", "payment", "refund"] as const;
 
 const TABS = [
   { id: "terms", label: "Terms" },
@@ -98,16 +99,16 @@ const POLICIES: Record<string, { title: string; sections: { heading: string; bod
 };
 
 export default function PolicyScreen() {
-  const navigation = useNavigation<PolicyNavProp>(); // ✅ Now properly typed
+  const navigation = useNavigation<PolicyNavProp>();
   const route = useRoute<any>();
-  const initialTab = route.params?.tab ?? "terms";
+  const rawTab = route.params?.tab;
+  const initialTab = typeof rawTab === "string" && (VALID_TABS as readonly string[]).includes(rawTab) ? rawTab : "terms";
   const [activeTab, setActiveTab] = useState<string>(initialTab);
 
-  const policy = POLICIES[activeTab];
+  const policy = POLICIES[activeTab] ?? POLICIES.terms;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backIcon}>←</Text>
@@ -116,7 +117,6 @@ export default function PolicyScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      {/* Tabs */}
       <View style={styles.tabsRow}>
         {TABS.map((tab) => (
           <TouchableOpacity
@@ -132,7 +132,6 @@ export default function PolicyScreen() {
         ))}
       </View>
 
-      {/* Content */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}

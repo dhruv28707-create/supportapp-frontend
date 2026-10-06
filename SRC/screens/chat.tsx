@@ -18,7 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import firestore from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
 import { useToken } from "../context/TokenContext";
-import { CRISIS_HELPLINES, isStrangerPersonality } from "../constants";
+import { CRISIS_HELPLINES, isStrangerPersonality, VALID_PERSONALITIES, VALID_RELIGIONS } from "../constants";
 import { apiFetch } from "../api/client";
 import { useCountdown, formatCountdown, useOnlineStatus } from "../hooks/useCountdown";
 import { colors } from "../theme";
@@ -355,7 +355,22 @@ const conversationMessagesRef = (uid: string, id: string) =>
 const makeMessageId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
 
-/** Normalize stored/returned text: handle escaped + real CRLF/LF uniformly. */
+const MAX_MESSAGE_LENGTH = 2000;
+
+const normalizePersonality = (value: unknown): string => {
+  if (typeof value === "string" && (VALID_PERSONALITIES as readonly string[]).includes(value)) {
+    return value;
+  }
+  return "Friend";
+};
+
+const normalizeReligion = (value: unknown): string | undefined => {
+  if (typeof value === "string" && (VALID_RELIGIONS as readonly string[]).includes(value)) {
+    return value;
+  }
+  return undefined;
+};
+
 const normalizeNewlines = (text: string): string =>
   text.replace(/\\r\\n|\\n/g, "\n").replace(/\r\n/g, "\n");
 
@@ -369,13 +384,13 @@ export default function ChatScreen() {
   const initialConversationId = route.params?.conversationId;
 
   const isLegacyGuide = typeof rawPersonalityParam === "string" && rawPersonalityParam.startsWith("Guide_");
-  const personality = isLegacyGuide ? "Guide" : rawPersonalityParam;
-  // Stranger must never carry a religion — backend force-clears it.
+  const basePersonality = isLegacyGuide ? "Guide" : rawPersonalityParam;
+  const personality = normalizePersonality(basePersonality);
   const religionSubType = isStrangerPersonality(personality)
     ? undefined
     : isLegacyGuide
-      ? rawPersonalityParam.split("_")[1]
-      : rawReligionSubTypeParam;
+      ? normalizeReligion(rawPersonalityParam.split("_")[1]) ?? undefined
+      : normalizeReligion(rawReligionSubTypeParam);
 
   const isStranger = isStrangerPersonality(personality);
 
@@ -391,9 +406,6 @@ export default function ChatScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [conversationId, setConversationId] = useState<string | undefined>(initialConversationId);
 
-  // 429 signal from the backend. `showRefillTimer` decides which banner to show:
-  // - true  → quota exhausted → "limit reached, refills at X" + link to Settings
-  // - false → abuse/IP rate limit (code 'ip_rate_limited') → generic retry msg, no timer.
   const [limitSignal, setLimitSignal] = useState<{
     hit: boolean;
     refreshAt: number | string | null;
@@ -405,14 +417,13 @@ export default function ChatScreen() {
     showRefillTimer: false,
   });
 
-  // 503 Service error signal with retry
   const [serviceError, setServiceError] = useState<{ hit: boolean; message?: string } | null>(null);
 
   const inputRef = useRef<TextInput>(null);
 
   useFocusEffect(
     useCallback(() => {
-      refreshPlan();
+      refreshPlan().catch(() => {});
     }, [refreshPlan])
   );
 
@@ -430,7 +441,6 @@ export default function ChatScreen() {
   };
 
   const ensureConversation = async (uid: string, firstMessage: string) => {
-    // Stranger chats are never persisted — backend returns storeHistory:false.
     if (isStranger) return undefined;
     if (conversationId) return conversationId;
     const newConversationRef = conversationsRef(uid).doc();
@@ -536,11 +546,6 @@ export default function ChatScreen() {
     "harm myself", "hurt myself", "can't go on", "give up on life",
   ] as const;
 
-  /**
-   * Simple crisis-signal heuristic. It is intentionally broad so we err on the
-   * side of showing help. It is client-only and only controls the in-app crisis
-   * popup — the backend is the source of truth for any serious safeguards.
-   */
   const isCrisisMessage = (text: string): boolean => {
     if (!text) return false;
     const lower = text.toLowerCase();
@@ -551,14 +556,18 @@ export default function ChatScreen() {
     const userName = userProfile?.firstName ?? "friend";
     const emergencyContact = userProfile?.emergencyContact;
 
+    const openDialer = (num: string) => {
+      Linking.openURL(`tel:${num}`).catch(() => {});
+    };
+
     const buttons: any[] = [
       {
         text: `Call ${CRISIS_HELPLINES.iCall.label}`,
-        onPress: () => Linking.openURL(`tel:${CRISIS_HELPLINES.iCall.number}`),
+        onPress: () => openDialer(CRISIS_HELPLINES.iCall.number),
       },
       {
         text: `Call ${CRISIS_HELPLINES.vandrevala.label}`,
-        onPress: () => Linking.openURL(`tel:${CRISIS_HELPLINES.vandrevala.number}`),
+        onPress: () => openDialer(CRISIS_HELPLINES.vandrevala.number),
       },
     ];
 
@@ -566,7 +575,7 @@ export default function ChatScreen() {
       const dialNumber = String(emergencyContact).replace(/\D/g, "");
       buttons.push({
         text: `📞 Call ${emergencyContact}`,
-        onPress: () => Linking.openURL(`tel:${dialNumber}`),
+        onPress: () => openDialer(dialNumber),
       });
     }
 
@@ -579,10 +588,10 @@ export default function ChatScreen() {
     );
   };
 
-  const executeSend = async (messageText: string) => {
+  const executeSend = async (messageText: string, opts?: { retry?: boolean }) => {
     if (!messageText.trim() || loading) return;
 
-    const currentInput = messageText.trim();
+    const currentInput = messageText.trim().slice(0, MAX_MESSAGE_LENGTH);
     setServiceError(null);
 
     if (isCrisisMessage(currentInput)) showCrisisSupport();
@@ -600,28 +609,26 @@ export default function ChatScreen() {
       text: currentInput,
       sender: "user",
     };
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
+    if (!opts?.retry) {
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+    }
     setLoading(true);
 
     try {
-      // Persistence must never block the reply: if Firestore is unreachable
-      // (rules, offline, quota) the user should still get an answer.
-      // Stranger chats skip persistence entirely (storeHistory:false).
       let activeConversationId: string | undefined = conversationId;
       if (!isStranger) {
         try {
           activeConversationId = await ensureConversation(uid, currentInput);
         } catch (e: any) {
           console.warn('ensureConversation failed — continuing without history:', e?.message);
-          // do NOT rethrow
         }
       } else {
         activeConversationId = undefined;
       }
       const storedPersonality = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
 
-      if (!isStranger && activeConversationId) {
+      if (!isStranger && activeConversationId && !opts?.retry) {
         try {
           await conversationMessagesRef(uid, activeConversationId).doc(userMessage.id).set({
             text: userMessage.text,
@@ -643,9 +650,6 @@ export default function ChatScreen() {
         }
       }
 
-      // Backend request payload matching contract exactly.
-      // Stranger: send only {message, personality:"Stranger"} — no history,
-      // no religionSubType, no prior turns.
       const requestBody: { message: string; personality?: string; religionSubType?: string } = {
         message: currentInput,
         personality: isStranger ? "Stranger" : personality,
@@ -676,7 +680,6 @@ export default function ChatScreen() {
       }
 
       if (response.status === 503) {
-        // Service unavailable — quota NOT consumed. Show error banner with retry button.
         setServiceError({ hit: true, message: currentInput });
         setLoading(false);
         return;
@@ -714,8 +717,6 @@ export default function ChatScreen() {
         religionSubType: isStranger ? undefined : (data.religionSubType || religionSubType),
       };
 
-      // Backend may confirm storeHistory:false / noHistory:true for Stranger.
-      // Either way, never persist Stranger turns locally or in Firestore.
       if (!isStranger && activeConversationId) {
         try {
           await conversationMessagesRef(uid, activeConversationId).doc(aiReply.id).set({
@@ -748,8 +749,6 @@ export default function ChatScreen() {
       const text = error?.name === 'AbortError'
         ? "That took too long — please try again."
         : "Sorry, I couldn't respond right now. Please try again.";
-      // Keep the user's message for context — only append the error bubble
-      // if one isn't already there (prevents duplicates on retry).
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last && last.sender === "ai" && last.text === text) return prev;
@@ -767,17 +766,20 @@ export default function ChatScreen() {
     }
   };
 
-  const handleSend = () => executeSend(input);
-
   const sendButtonStyle = { backgroundColor: loading ? colors.borderStrong : theme.sendBtn };
 
-  // Refill countdown is never rendered from plan.nextRefreshAt in chat.
-  // Only the 429 response body decides: showRefillTimer=true → quota banner
-  // with timer; otherwise a generic rate-limit banner with no timer.
   const quotaExhausted = limitSignal.hit && limitSignal.showRefillTimer;
   const rateLimited = limitSignal.hit && !limitSignal.showRefillTimer;
   const secondsLeft = useCountdown(limitSignal.refreshAt);
   const isOnline = useOnlineStatus();
+
+  const handleSend = () => {
+    if (!isOnline) {
+      Alert.alert("You're offline", "Please check your connection and try again.");
+      return;
+    }
+    executeSend(input);
+  };
 
   const clearedExpiredSignal = useRef(false);
   useEffect(() => {
@@ -919,7 +921,7 @@ export default function ChatScreen() {
               onPress={() => {
                 const retryMsg = serviceError.message;
                 setServiceError(null);
-                if (retryMsg) executeSend(retryMsg);
+                if (retryMsg) executeSend(retryMsg, { retry: true });
               }}
               activeOpacity={0.85}
             >
@@ -974,9 +976,6 @@ export default function ChatScreen() {
             </TouchableOpacity>
           </View>
         ) : null}
-        {/* Quota lives in Settings > Usage only (backend uiHints.hideQuotaInChat).
-            Chat shows no messages-left / refill countdown — only the 429
-            limitReached error states above. */}
 
         <View style={styles.inputContainer}>
           <TextInput
@@ -985,11 +984,12 @@ export default function ChatScreen() {
             placeholder="What's on your mind?"
             placeholderTextColor={colors.textMuted}
             value={input}
-            onChangeText={setInput}
+            onChangeText={(t) => setInput(t.slice(0, MAX_MESSAGE_LENGTH))}
             onSubmitEditing={handleSend}
             returnKeyType="send"
             editable={!loading}
             multiline={false}
+            maxLength={MAX_MESSAGE_LENGTH}
           />
           <TouchableOpacity
             style={[styles.sendButton, sendButtonStyle]}

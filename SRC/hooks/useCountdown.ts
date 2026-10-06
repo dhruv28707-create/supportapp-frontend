@@ -21,10 +21,6 @@ function secondsUntil(target: TargetTime): number {
   return Math.max(0, Math.floor(diff / 1000));
 }
 
-/**
- * Returns a live count of seconds remaining until `target` (epoch ms or ISO string),
- * re-evaluated every second. Returns 0 when there is no target or it passed.
- */
 export function useCountdown(target: TargetTime): number {
   const [seconds, setSeconds] = useState(() => secondsUntil(target));
 
@@ -58,13 +54,6 @@ export function formatRefreshIn(totalSeconds: number): string {
   return `${h}h ${m % 60}m`;
 }
 
-/**
- * Returns true when the device appears to be offline.
- *
- * Uses a lightweight HEAD-style check on the backend health endpoint.
- * Results are cached for `cacheMs` so a flaky connection doesn't cause
- * the indicator to flicker on every keystroke or scroll event.
- */
 export function useOnlineStatus(cacheMs = 10_000): boolean {
   const [online, setOnline] = useState(true);
 
@@ -77,9 +66,6 @@ export function useOnlineStatus(cacheMs = 10_000): boolean {
       const controller = new AbortController();
       abortTimer = setTimeout(() => controller.abort(), 3000);
       try {
-        // Must be GET — the backend health route only registers GET/POST/DELETE,
-        // so a HEAD request returns 405 and made the app always look offline.
-        // Accepts the new `firebase` field; 503 / disconnected = degraded.
         const res = await fetch(`${BACKEND_URL}/api/health`, {
           method: 'GET',
           signal: controller.signal,

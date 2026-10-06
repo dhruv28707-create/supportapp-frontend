@@ -21,15 +21,6 @@ import { startUltimateTrial, fetchPlans, TrialApiError } from "../services/safeS
 import { trialDaysLeft } from "../components/TrialBanner";
 import { colors } from "../theme";
 
-/**
- * Safe fallback for the Razorpay key_id.
- *
- * The backend order endpoint should always return keyId. If it doesn't,
- * we only fall back to the locally configured RAZORPAY_KEY_ID when it looks
- * like a real key (starts with rzp_live_ / rzp_test_). If it is a placeholder
- * or unset, we do NOT silently ship a stale/placeholder value into Razorpay —
- * we throw so the failure is visible instead of confusing.
- */
 function safeRazorpayKey(): string {
   const key = RAZORPAY_KEY_ID;
   if (/^rzp_(live|test)_/.test(key)) {
@@ -41,8 +32,7 @@ function safeRazorpayKey(): string {
   );
 }
 
-// Offline fallback only — the backend catalog (GET /api/plans) is the source
-// of truth for prices. Display prefers `catalogPrices` below.
+// Offline prices only. Backend catalog is the source of truth.
 const FALLBACK_PLANS = {
   pro: {
     name: "Pro",
@@ -85,8 +75,7 @@ const FALLBACK_PLANS = {
   },
 };
 
-// Wait before reading the plan back after a payment so the verify/webhook
-// has time to persist the new tier before we display it.
+// Short delay so verify/webhook can persist the new tier before we re-read it.
 const PLAN_POLL_DELAY_MS = 4000;
 
 export default function PaywallScreen() {
@@ -114,8 +103,6 @@ export default function PaywallScreen() {
   const [catalogPrices, setCatalogPrices] = useState<Record<string, number> | null>(null);
   const [catalogMeta, setCatalogMeta] = useState<Record<string, { messageLimit: number; refreshHours: number }> | null>(null);
 
-  // Backend catalog is the source of truth for prices (amount/amountPaise).
-  // Fall back to bundled prices only when offline.
   useEffect(() => {
     let mounted = true;
     fetchPlans()
@@ -170,6 +157,7 @@ export default function PaywallScreen() {
   };
 
   const handleSubscribe = async (planKey: "pro" | "ultimate") => {
+    if (loading) return;
     const user = auth().currentUser;
 
     if (!user) {
@@ -187,9 +175,6 @@ export default function PaywallScreen() {
       setLoading(planKey);
       setPaymentFailed(false);
 
-      // The backend authenticates via the Bearer token — do not send uid in
-      // the body (it is ignored/rejected now). apiFetch attaches a fresh
-      // token and retries once on 401.
       const orderRes = await apiFetch("/api/payment-order", {
         method: "POST",
         body: JSON.stringify({ tier: tierKey }),
@@ -201,8 +186,6 @@ export default function PaywallScreen() {
         throw new Error(orderData.error || "Failed to create order");
       }
 
-      // The order endpoint returns orderId, amount, currency, keyId.
-      // The charged amount always comes from the backend order, never local constants.
       const options = {
         description: `${FALLBACK_PLANS[planKey].name} Plan – ${billingCycle === "monthly" ? "Monthly" : "Yearly"}`,
         currency: orderData.currency || "INR",
@@ -237,9 +220,6 @@ export default function PaywallScreen() {
       }
 
       setActivating(true);
-      // Read the freshly fetched plan (the context value is stale here — it
-      // was captured when this closure was created). Poll again after a few
-      // seconds so a webhook-triggered update is reflected too.
       let freshPlan = await refreshPlan();
 
       if (freshPlan.plan === "free") {
@@ -345,7 +325,7 @@ export default function PaywallScreen() {
 
         <View style={styles.currentPlanBadge}>
           <Text style={styles.currentPlanText}>
-            Current plan: {plan.toUpperCase()}
+            Current plan: {normalizedPlan ? normalizedPlan.toUpperCase() : "FREE"}
             {isTrial ? ' (TRIAL)' : ''}
           </Text>
         </View>
@@ -361,7 +341,7 @@ export default function PaywallScreen() {
           <View style={styles.trialCta}>
             <Text style={styles.trialCtaTitle}>Try Ultimate free for 5 days</Text>
             <Text style={styles.trialCtaSub}>
-              All 12 personas and 200 messages every 2 hours. No payment required.
+              All 13 personas and 200 messages every 2 hours. No payment required.
             </Text>
             {trialError && <Text style={styles.trialError}>{trialError}</Text>}
             <TouchableOpacity
@@ -488,9 +468,9 @@ export default function PaywallScreen() {
 
                   <TouchableOpacity
                     style={[styles.subscribeBtn, subscribeBtnBg]}
-                    onPress={() => !isPurchased && handleSubscribe(key as "pro" | "ultimate")}
+                    onPress={() => !isPurchased && !loading && handleSubscribe(key as "pro" | "ultimate")}
                     activeOpacity={isPurchased ? 1 : 0.85}
-                    disabled={loading === key || isPurchased}
+                    disabled={loading !== null || isPurchased}
                   >
                     {loading === key ? (
                       <ActivityIndicator color={planItem.btnText} />
@@ -645,7 +625,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "center",
-    gap: 6,
   },
   toggleBtnActive: { backgroundColor: colors.primary },
   toggleText: { fontSize: 14, fontWeight: "600", color: colors.textMuted },
@@ -655,6 +634,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 6,
     paddingVertical: 2,
+    marginLeft: 6,
   },
   savingPillText: { fontSize: 10, fontWeight: "700", color: colors.primary },
 

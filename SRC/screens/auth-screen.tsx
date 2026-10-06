@@ -18,7 +18,7 @@ export default function AuthScreen() {
   const handleCreateAccount = () => {
     Alert.alert(
       "Your Privacy Matters",
-      "Your conversations on SafeSpace are completely private and will never be shared with anyone not with us, not with third parties.\n\nOur AI processes your messages to respond to you, but no human ever reads your conversations.\n\nIf you ever feel your privacy has been violated, reach out to us immediately:\n\n " + SUPPORT_EMAIL,
+      "Your conversations on SafeSpace are completely private and will never be shared with us or with third parties.\n\nOur AI processes your messages to respond to you, but no human ever reads your conversations.\n\nIf you ever feel your privacy has been violated, reach out to us immediately:\n\n " + SUPPORT_EMAIL,
       [
         {
           text: "Contact Us",

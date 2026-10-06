@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   Alert,
   ScrollView,
@@ -28,10 +28,13 @@ export default function RegisterScreen() {
   const [emergencyContact, setEmergencyContact] = useState("");
   const [loading, setLoading] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const contactHintShown = useRef(false);
 
   const genders = ["Male", "Female", "Other", "Prefer not to say"];
 
   const handleEmergencyContactFocus = () => {
+    if (contactHintShown.current) return;
+    contactHintShown.current = true;
     Alert.alert(
       "Your Number is Safe",
       "Your emergency contact number is stored securely and will NEVER be misused, shared, or contacted by us without your consent.\n\nIt is only shown to you during a crisis moment inside the app — nothing else.\n\nIf you ever find this violated, email us immediately with proof:\n\n" + SUPPORT_EMAIL,
@@ -78,7 +81,6 @@ export default function RegisterScreen() {
       const userCredential = await auth().createUserWithEmailAndPassword(cleanEmail, password);
       const uid = userCredential.user.uid;
 
-      // `tier` is required by the Firestore rules (allow create: tier == 'free').
       await firestore().collection("users").doc(uid).set({
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -89,10 +91,6 @@ export default function RegisterScreen() {
         createdAt: firestore.FieldValue.serverTimestamp(),
         agreedToTermsAt: firestore.FieldValue.serverTimestamp(),
       });
-
-      // Navigation to the app stack happens automatically via onAuthStateChanged
-      // in AppNavigator — do NOT call navigation.replace("Lobby") here, the auth
-      // stack has no such route and it races the auth-state switch.
     } catch (error: any) {
       Alert.alert("Registration Failed", friendlyAuthError(error, "Could not create your account. Please try again."));
     } finally {
@@ -126,7 +124,6 @@ export default function RegisterScreen() {
       const userCredential = await auth().signInWithCredential(googleCredential);
       const uid = userCredential.user.uid;
 
-      // If first time, create user doc. `tier` is required by the Firestore rules.
       const userDoc = await firestore().collection("users").doc(uid).get();
       if (!userDoc.exists()) {
         const displayName = userCredential.user.displayName || "";
@@ -155,7 +152,6 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.appName}>SafeSpace</Text>
         <Text style={styles.appTagline}>You are not alone</Text>
@@ -170,7 +166,6 @@ export default function RegisterScreen() {
         <Text style={styles.welcomeText}>Create Account</Text>
         <Text style={styles.welcomeSub}>Tell us a little about yourself</Text>
 
-        {/* First Name */}
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>First Name *</Text>
           <TextInput
@@ -182,7 +177,6 @@ export default function RegisterScreen() {
           />
         </View>
 
-        {/* Last Name */}
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Last Name *</Text>
           <TextInput
@@ -194,7 +188,6 @@ export default function RegisterScreen() {
           />
         </View>
 
-        {/* Gender */}
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Gender *</Text>
           <View style={styles.genderRow}>
@@ -213,7 +206,6 @@ export default function RegisterScreen() {
           </View>
         </View>
 
-        {/* Email */}
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Email *</Text>
           <TextInput
@@ -227,7 +219,6 @@ export default function RegisterScreen() {
           />
         </View>
 
-        {/* Password */}
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Password *</Text>
           <TextInput
@@ -240,33 +231,31 @@ export default function RegisterScreen() {
           />
         </View>
 
-        {/* Emergency Contact */}
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>
             Emergency Contact <Text style={styles.optional}>(optional)</Text>
           </Text>
           <TextInput
             style={styles.input}
-            placeholder="10 digit phone number"
+            placeholder="Phone number (7-15 digits)"
             placeholderTextColor={colors.textFaint}
             keyboardType="phone-pad"
-            maxLength={10}
+            maxLength={15}
             value={emergencyContact}
-            onChangeText={(text) => setEmergencyContact(text.replace(/[^0-9]/g, ""))}
+            onChangeText={(text) => setEmergencyContact(text.replace(/[^0-9]/g, "").slice(0, 15))}
             onFocus={handleEmergencyContactFocus}
           />
           <Text style={styles.hint}>Only shown to you during a crisis moment — never shared</Text>
         </View>
 
-        {/* T&C Checkbox */}
-        <TouchableOpacity
-          style={styles.termsRow}
-          onPress={() => setAgreedToTerms((prev) => !prev)}
-          activeOpacity={0.8}
-        >
-          <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
+        <View style={styles.termsRow}>
+          <TouchableOpacity
+            style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}
+            onPress={() => setAgreedToTerms((prev) => !prev)}
+            activeOpacity={0.8}
+          >
             {agreedToTerms && <Text style={styles.checkboxTick}>✓</Text>}
-          </View>
+          </TouchableOpacity>
           <Text style={styles.termsText}>
             I agree to the{" "}
             <Text
@@ -283,13 +272,12 @@ export default function RegisterScreen() {
               Privacy Policy
             </Text>
           </Text>
-        </TouchableOpacity>
+        </View>
 
-        {/* Register Button */}
         <TouchableOpacity
           style={[
             styles.primaryButton,
-            (loading || !agreedToTerms) && styles.primaryButtonDisabled,
+            loading && styles.primaryButtonDisabled,
           ]}
           onPress={handleRegister}
           disabled={loading}
@@ -300,14 +288,12 @@ export default function RegisterScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* Divider */}
         <View style={styles.divider}>
           <View style={styles.dividerLine} />
           <Text style={styles.dividerText}>or</Text>
           <View style={styles.dividerLine} />
         </View>
 
-        {/* Google Sign-In */}
         <TouchableOpacity
           style={styles.googleBtn}
           onPress={handleGoogleSignIn}
@@ -318,7 +304,6 @@ export default function RegisterScreen() {
           <Text style={styles.googleBtnText}>Continue with Google</Text>
         </TouchableOpacity>
 
-        {/* Login link */}
         <View style={styles.bottomRow}>
           <Text style={styles.bottomPrompt}>Already have an account? </Text>
           <TouchableOpacity onPress={() => nav.navigate("Login")}>

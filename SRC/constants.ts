@@ -2,8 +2,6 @@ import { RAZORPAY_KEY_ID as RAZORPAY_KEY_ID_SECRET, GOOGLE_WEB_CLIENT_ID as GOOG
 
 export const BACKEND_URL = 'https://supportapp-backend.vercel.app';
 
-// Re-exported from ./secrets (gitignored). Loaded from env vars at build time.
-// Empty/placeholder values fail loudly at runtime instead of silently using a live key.
 export const RAZORPAY_KEY_ID = RAZORPAY_KEY_ID_SECRET;
 export const GOOGLE_WEB_CLIENT_ID = GOOGLE_WEB_CLIENT_ID_SECRET;
 
@@ -53,14 +51,13 @@ export const VALID_PERSONALITIES = [
 
 export type Personality = typeof VALID_PERSONALITIES[number];
 
-/** Anonymous stranger persona — free on all plans, no history kept. Mirrors backend. */
 export const STRANGER_PERSONALITY = 'Stranger' as const;
 
 export function isStrangerPersonality(personality: string | null | undefined): boolean {
   return personality === STRANGER_PERSONALITY;
 }
 
-/** Personalities available on every plan without a paywall (includes Stranger). */
+/** Free on every plan, no history kept. */
 export const FREE_PERSONALITIES: readonly string[] = [
   'Father',
   'Mother',

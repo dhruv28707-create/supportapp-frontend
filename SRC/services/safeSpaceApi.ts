@@ -1,12 +1,3 @@
-// ---------------------------------------------------------------------------
-// SAFESPACE backend client (React Native).
-// Thin typed wrappers around SRC/api/client apiFetch, which already attaches
-// the Firebase ID token and retries once on 401.
-// Backend endpoints: GET /api/user/plan, GET /api/plans (public),
-// POST /api/trial/start, POST /api/payment-order, POST /api/payment-verify,
-// POST /api/payment-cancel.
-// ---------------------------------------------------------------------------
-
 import RazorpayCheckout from 'react-native-razorpay';
 import { apiFetch, ApiError } from '../api/client';
 import { BACKEND_URL } from '../constants';
@@ -129,35 +120,33 @@ function toUsageState(data: any): UsageState {
   };
 }
 
-/** GET /api/user/plan — plan, quota, and trial state. */
+/** GET /api/user/plan */
 export async function fetchPlan(): Promise<PlanState> {
   const res = await apiFetch('/api/user/plan');
   const data = await parseOrThrow<any>(res);
   return toPlanState(data);
 }
 
-/** GET /api/user/usage — plan, quota, refill + uiHints. New clients should use this. */
+/** GET /api/user/usage */
 export async function fetchUsage(): Promise<UsageState> {
   const res = await apiFetch('/api/user/usage');
   const data = await parseOrThrow<any>(res);
   return toUsageState(data);
 }
 
-/** GET /api/plans — public catalog (no auth needed, but apiFetch requires a user; falls back to plain fetch). */
+/** GET /api/plans */
 export async function fetchPlans(): Promise<{ currency: string; options: PlanOption[] }> {
   try {
     const res = await apiFetch('/api/plans');
     return await parseOrThrow(res);
   } catch (e) {
-    // Only fall back to unauthenticated fetch when there is no signed-in
-    // user — otherwise we'd mask real auth/server failures.
     if (!(e instanceof ApiError && e.status === 401)) throw e;
     const res = await fetch(`${BACKEND_URL}/api/plans`);
     return await parseOrThrow(res);
   }
 }
 
-/** POST /api/trial/start — start the 5-day Ultimate free trial. */
+/** POST /api/trial/start */
 export async function startUltimateTrial(): Promise<{
   success: true;
   isTrial: true;
@@ -171,7 +160,7 @@ export async function startUltimateTrial(): Promise<{
   return parseOrThrow(res);
 }
 
-/** POST /api/payment-order — create a Razorpay order for a tier. */
+/** POST /api/payment-order */
 export function createPaymentOrder(tier: string): Promise<{
   orderId: string;
   amount: number;
@@ -186,7 +175,7 @@ export function createPaymentOrder(tier: string): Promise<{
   );
 }
 
-/** POST /api/payment-verify — verify checkout and activate the plan. */
+/** POST /api/payment-verify */
 export function verifyPayment(p: RazorpayCheckoutResult): Promise<{
   success: boolean;
   plan: Plan;
@@ -206,14 +195,14 @@ export function verifyPayment(p: RazorpayCheckoutResult): Promise<{
   );
 }
 
-/** POST /api/payment-cancel — immediately cancel a paid plan or a trial. */
+/** POST /api/payment-cancel */
 export function cancelSubscription(): Promise<{ ok: boolean; message: string }> {
   return apiFetch('/api/payment-cancel', { method: 'POST', body: JSON.stringify({}) }).then((res) =>
     parseOrThrow<{ ok: boolean; message: string }>(res),
   );
 }
 
-/** Full paid flow: order -> Razorpay checkout -> verify. Returns the fresh plan. */
+/** Order -> Razorpay checkout -> verify. Returns the fresh plan. */
 export async function buyPlan(
   tier: string,
   meta?: { name?: string; description?: string; email?: string; contact?: string; username?: string },

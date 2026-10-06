@@ -1,5 +1,3 @@
-/** Shared auth helpers — keeps Login/Register error UX consistent. */
-
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -8,7 +6,6 @@ export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-/** Works across google-signin SDK versions (new `data.idToken` vs legacy top-level). */
 export function extractGoogleIdToken(userInfo: any): string | null {
   return (
     userInfo?.data?.idToken ??
@@ -33,7 +30,6 @@ export function friendlyAuthError(error: any, fallback: string): string {
   const code = typeof error?.code === 'string' ? error.code : '';
   if (code && FRIENDLY_AUTH_ERRORS[code]) return FRIENDLY_AUTH_ERRORS[code];
   const msg = typeof error?.message === 'string' ? error.message : '';
-  // Never surface raw Firebase internals like "(auth/...)".
   if (/auth\//.test(msg)) return fallback;
   return msg || fallback;
 }

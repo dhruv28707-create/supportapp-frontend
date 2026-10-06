@@ -1,16 +1,4 @@
-/**
- * SafeSpace design system
- * --------------------------------------------------------------
- * Single source of truth for the visual language of the app.
- * Calm, warm and reassuring — built for an emotional-support product.
- *
- * Brand: a grounded terracotta/amber "primary" on a soft cream canvas,
- * paired with a near-cocoa ink for text. Used consistently across every
- * screen so the experience feels cohesive and intentional.
- */
-
 export const colors = {
-  /* Brand */
   primary: "#C8702A",
   primaryDark: "#A85A1E",
   primaryDarker: "#8A4A18",
@@ -19,22 +7,18 @@ export const colors = {
   onPrimary: "#FFF8F0",
   onPrimaryMuted: "#F5D9B8",
 
-  /* Surfaces (warm, low-contrast cream) */
   background: "#FDF6EC",
   surface: "#FFF8F0",
   surfaceAlt: "#FFF3E8",
 
-  /* Text */
   text: "#3D2000",
   textMuted: "#B0937A",
   textSubtle: "#9E7C63",
   textFaint: "#C0A080",
 
-  /* Lines */
   border: "#F0DCC8",
   borderStrong: "#E8D0B8",
 
-  /* Semantic */
   danger: "#D32F2F",
   dangerDark: "#C53030",
   dangerBg: "#FFF0F0",

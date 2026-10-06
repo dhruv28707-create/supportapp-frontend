@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import auth, { FirebaseAuthTypes } from "@react-native-firebase/auth";
+import { colors } from "../theme";
 
 import AuthScreen from "../screens/auth-screen";
 import LoginScreen from "../screens/LoginScreen";
@@ -53,7 +54,7 @@ export default function AppNavigator() {
   if (loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color="#2563EB" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }

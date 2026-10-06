@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   StyleSheet,
   Text,
@@ -13,7 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
-import { TIER_UNLOCKS, PlanKey, isStrangerPersonality } from "../constants";
+import { TIER_UNLOCKS, PlanKey, isStrangerPersonality, VALID_RELIGIONS } from "../constants";
 import TrialBanner from "../components/TrialBanner";
 import { colors } from "../theme";
 
@@ -155,7 +155,7 @@ const personalities = [
   { id: "Wife",        emoji: "👰", label: "Wife"        },
   { id: "Boyfriend",   emoji: "💙", label: "Boyfriend"   },
   { id: "Girlfriend",  emoji: "🩷", label: "Girlfriend"  },
-  { id: "Stranger",    emoji: "🎭", label: "Stranger", sub: "Anonymous · No history", free: true },
+  { id: "Stranger",    emoji: "🎭", label: "Stranger" },
 ];
 
 const religions = [
@@ -178,8 +178,13 @@ export default function LobbyScreen() {
   const planKey: PlanKey = (plan === 'pro' || plan === 'ultimate') ? plan : 'free';
   const unlockedPersonalities = TIER_UNLOCKS[planKey] ?? TIER_UNLOCKS.free;
 
+  useEffect(() => {
+    if (!isStrangerPersonality(selected) && !unlockedPersonalities.includes(selected)) {
+      setSelected("Father");
+    }
+  }, [unlockedPersonalities, selected]);
+
   const handlePersonalitySelect = (id: string) => {
-    // Stranger is free on every plan — never gate it behind the paywall.
     if (!isStrangerPersonality(id) && !unlockedPersonalities.includes(id)) {
       Alert.alert(
         "Locked 🔒",
@@ -203,10 +208,22 @@ export default function LobbyScreen() {
   };
 
   const handleChat = () => {
-    // Religion picker is Guide-only. Stranger must never carry a religionSubType
-    // (backend force-clears it to prevent Guide_hindu-style smuggling).
+    if (!isStrangerPersonality(selected) && !unlockedPersonalities.includes(selected)) {
+      Alert.alert(
+        "Locked 🔒",
+        "This personality is not available on your current plan. Upgrade to unlock!",
+        [
+          { text: "Maybe Later", style: "cancel" },
+          { text: "Upgrade ✨", onPress: () => navigation.navigate("Paywall") },
+        ]
+      );
+      return;
+    }
+    const safeReligion = (VALID_RELIGIONS as readonly string[]).includes(selectedReligion)
+      ? selectedReligion
+      : "spiritual";
     if (selected === "Guide") {
-      navigation.navigate("chat", { personality: "Guide", religionSubType: selectedReligion });
+      navigation.navigate("chat", { personality: "Guide", religionSubType: safeReligion });
     } else {
       navigation.navigate("chat", { personality: selected });
     }
@@ -246,8 +263,6 @@ export default function LobbyScreen() {
 
       <View style={styles.content}>
         <TrialBanner compact />
-        {/* Quota lives in Settings > Usage only (backend uiHints.hideQuotaInLobby).
-            Lobby shows no messages-left / refill countdown. */}
 
         <Text style={styles.sectionTitle}>Choose Your Companion</Text>
         <Text style={styles.sectionSub}>Who do you want to talk to today?</Text>
@@ -511,7 +526,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
   },
-  modalBox: {  
+  modalBox: {
     backgroundColor: colors.background,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,

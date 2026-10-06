@@ -9,9 +9,6 @@ import {
   View,
 } from 'react-native';
 
-// Logo asset is bundled statically. If the file is missing the bundle build
-// fails, so no runtime try/catch can recover — keep a direct require and
-// decide fallback by checking for an empty uri instead.
 const logoSource: any = require('../../assets/bootsplash/logo.png');
 
 function hasValidLogo(source: any): boolean {
@@ -19,7 +16,6 @@ function hasValidLogo(source: any): boolean {
   if (typeof source === 'object' && 'uri' in source) {
     return typeof source.uri === 'string' && source.uri.length > 0;
   }
-  // Opaque Metro asset ID (number) is valid.
   return true;
 }
 
@@ -71,6 +67,7 @@ export default function SplashScreen({ onFinish }: Props) {
     const hasLogo = hasValidLogo(logoSource);
     const splashDuration = hasLogo ? 3400 : 1800;
     let finished = false;
+    let safetyTimer: ReturnType<typeof setTimeout>;
     const finishOnce = () => {
       if (finished) return;
       finished = true;
@@ -150,9 +147,8 @@ export default function SplashScreen({ onFinish }: Props) {
       }
     });
 
-    // Safety net: if the animation somehow doesn't finish (e.g. native driver
-    // issue on a specific device), still advance after a hard timeout.
-    const safetyTimer = setTimeout(() => finishOnce(), splashDuration + 500);
+    // Fallback so a stalled animation still moves past splash.
+    safetyTimer = setTimeout(() => finishOnce(), splashDuration + 500);
     return () => clearTimeout(safetyTimer);
   }, [
     ashParticles,
@@ -221,7 +217,7 @@ export default function SplashScreen({ onFinish }: Props) {
   );
 }
 
-  const styles = StyleSheet.create({
+const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000000',

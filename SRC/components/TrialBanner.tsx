@@ -16,12 +16,6 @@ export function trialDaysLeft(trialEndsAt: number | string | null): number {
   return Math.max(0, Math.ceil((ms - Date.now()) / DAY_MS));
 }
 
-/**
- * TrialBanner — RN port of the web TrialGate states:
- * - trial active  -> countdown banner
- * - eligible      -> "Try Ultimate free for 5 days" CTA (no payment)
- * - trial used up -> nothing (paywall handles the choice cards)
- */
 export default function TrialBanner({ compact = false }: { compact?: boolean }) {
   const { isTrial, trialEndsAt, trialAvailable, refreshPlan } = useToken();
   const [busy, setBusy] = useState(false);
@@ -77,7 +71,7 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
     return (
       <View style={styles.cta}>
         <Text style={styles.ctaTitle}>Try Ultimate free for 5 days</Text>
-        <Text style={styles.ctaSub}>All 12 personas and 200 messages every 2 hours. No payment required.</Text>
+        <Text style={styles.ctaSub}>All 13 personas and 200 messages every 2 hours. No payment required.</Text>
         {error && <Text style={styles.error}>{error}</Text>}
         <TouchableOpacity style={styles.ctaBtn} onPress={onStartTrial} disabled={busy} activeOpacity={0.85}>
           {busy ? (

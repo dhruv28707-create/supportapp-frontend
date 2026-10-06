@@ -43,21 +43,6 @@ const DEFAULT_PLAN: PlanInfo = {
   refreshHours: null,
 };
 
-/**
- * Tracks the user's plan/limits.
- *
- * NOTE: deliberately does NOT use `useFocusEffect` — the provider sits
- * outside NavigationContainer, and useFocusEffect calls useNavigation(),
- * which throws "Couldn't find a navigation object" outside a container
- * (this previously crashed the app right after the splash screen).
- *
- * Refreshes when the auth user changes and when the app returns to the
- * foreground. Screens can also call refreshPlan() manually and read the
- * returned value for up-to-date plan state.
- *
- * Uses `apiFetch`, which attaches a fresh ID token and retries once on a
- * 401 (ID tokens expire after ~1h) before forcing a re-login.
- */
 export function usePlan() {
   const [planInfo, setPlanInfo] = useState<PlanInfo>(DEFAULT_PLAN);
   const [loading, setLoading] = useState(true);
@@ -72,19 +57,15 @@ export function usePlan() {
       return DEFAULT_PLAN;
     }
     try {
-      // New clients use GET /api/user/usage (plan + quota + refill + uiHints).
-      // Fall back to legacy GET /api/user/plan for older backends.
       let data: any = null;
       try {
         const res = await apiFetch(`/api/user/usage`);
         data = await res.json();
         if (!res.ok) throw new Error(`usage ${res.status}`);
       } catch {
-        // The backend reads the user from the Bearer token — no uid param needed.
         const res = await apiFetch(`/api/user/plan`);
         data = await res.json();
         if (!res.ok) {
-          // Non-ok response: keep last known good values instead of resetting.
           return planRef.current;
         }
       }
@@ -110,12 +91,7 @@ export function usePlan() {
           isTrial,
           trialEndsAt: data.trialEndsAt ?? null,
           trialUsed,
-          // Backend sends trialAvailable; fall back to derived value for
-          // older backends that only send isTrial/trialUsed.
           trialAvailable: data.trialAvailable ?? (!isTrial && !trialUsed),
-          // Gate the refill countdown: only show it when the backend says so.
-          // nextRefreshAt/refillInMs are always present for compat — ignore
-          // them unless showRefillTimer === true.
           showRefillTimer: data.showRefillTimer ?? false,
           messagesUsed,
           messagesTotal,
@@ -134,7 +110,6 @@ export function usePlan() {
     }
   }, []);
 
-  // Refresh whenever the auth user changes (login/logout).
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged(() => {
       refreshPlan();
@@ -142,9 +117,6 @@ export function usePlan() {
     return unsubscribe;
   }, [refreshPlan]);
 
-  // Refresh when the app returns to the foreground (e.g. plan refilled).
-  // Debounce repeated 'active' events so a rapid state flutter doesn't hammer
-  // the backend.
   useEffect(() => {
     let scheduled: ReturnType<typeof setTimeout> | null = null;
 

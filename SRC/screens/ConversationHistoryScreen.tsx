@@ -34,7 +34,6 @@ const personalityEmoji: Record<string, string> = {
   Guide_buddhist: "☸️", Guide_jewish: "✡️", Guide_spiritual: "✨", Guide_secular: "🌿",
   Boyfriend: "💙", Girlfriend: "🩷", Husband: "💍", Wife: "👰",
   Stranger: "🎭",
-  BestFriend: "💯", BF: "💙", GF: "🩷", Guide_Muslim: "☪️", Guide_Hindu: "🕉️", Guide_Christian: "✝️",
 };
 
 const personalityColor: Record<string, string> = {
@@ -44,7 +43,22 @@ const personalityColor: Record<string, string> = {
   Guide_buddhist: "#A1887F", Guide_jewish: "#64B5F6", Guide_spiritual: "#C8B560", Guide_secular: "#BDBDBD",
   Boyfriend: "#5B9BD5", Girlfriend: "#E91E8C", Husband: "#5C6BC0", Wife: "#E91E63",
   Stranger: "#78909C",
-  BestFriend: "#FFAB8F", BF: "#5B9BD5", GF: "#E91E8C", Guide_Muslim: "#66BB6A", Guide_Hindu: "#FF9999", Guide_Christian: "#CE93D8",
+};
+
+const normalizeStoredPersonality = (value: unknown): string => {
+  if (typeof value !== "string" || !value) return "Father";
+  if (value === "BestFriend") return "Best Friend";
+  if (value === "BF") return "Boyfriend";
+  if (value === "GF") return "Girlfriend";
+  if (value.startsWith("Guide_")) {
+    const sub = value.split("_")[1] ?? "";
+    const lower = sub.toLowerCase();
+    const known = ["islamic", "hindu", "christian", "buddhist", "jewish", "spiritual", "secular"];
+    if ((known as string[]).includes(lower)) return `Guide_${lower}`;
+    if (lower === "muslim") return "Guide_islamic";
+    return "Guide";
+  }
+  return value;
 };
 
 // All personalities for filter pills
@@ -58,15 +72,13 @@ const ALL_FILTERS = [
 const ListSeparator = () => <View style={styles.separator} />;
 
 const displayLabel = (personality: string) => {
-  if (personality.startsWith("Guide_")) {
-    const sub = personality.split("_")[1] ?? "";
+  const clean = normalizeStoredPersonality(personality);
+  if (clean.startsWith("Guide_")) {
+    const sub = clean.split("_")[1] ?? "";
     if (!sub) return "Guide";
     return `Guide · ${sub.charAt(0).toUpperCase() + sub.slice(1)}`;
   }
-  if (personality === "BestFriend") return "Best Friend";
-  if (personality === "BF") return "Boyfriend";
-  if (personality === "GF") return "Girlfriend";
-  return personality;
+  return clean;
 };
 
 /** Append alpha to a 6-digit hex color; fall back to the base color otherwise. */
@@ -77,11 +89,13 @@ const withAlpha = (hex: string, alpha: string): string => {
 
 /** Parse a stored personality like "Guide_islamic" into nav params. */
 const toChatParams = (personality: string, conversationId: string) => {
-  if (personality.startsWith("Guide_")) {
-    const sub = personality.split("_")[1];
+  const clean = normalizeStoredPersonality(personality);
+  if (clean.startsWith("Guide_")) {
+    const sub = clean.split("_")[1];
     return { personality: "Guide", religionSubType: sub, conversationId };
   }
-  return { personality, conversationId };
+  if (clean === "Stranger") return { personality: "Stranger" };
+  return { personality: clean, conversationId };
 };
 
 const formatTime = (timestamp: any): string => {
@@ -99,7 +113,9 @@ const formatTime = (timestamp: any): string => {
 export default function ConversationHistoryScreen() {
   const navigation = useNavigation<HistoryNavProp>();
   const route = useRoute<any>();
-  const filterPersonality: string | undefined = route.params?.filterPersonality;
+  const rawFilter = route.params?.filterPersonality;
+  const filterPersonality: string | undefined =
+    typeof rawFilter === "string" && (ALL_FILTERS as readonly string[]).includes(rawFilter) ? rawFilter : undefined;
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,11 +141,11 @@ export default function ConversationHistoryScreen() {
               const data = doc.data();
               return {
                 id: doc.id,
-                title: data.title ?? "Chat",
-                personality: data.personality ?? "Father",
-                lastMessage: data.lastMessage ?? "",
+                title: typeof data.title === "string" && data.title ? data.title : "Chat",
+                personality: normalizeStoredPersonality(data.personality),
+                lastMessage: typeof data.lastMessage === "string" ? data.lastMessage : "",
                 updatedAt: data.updatedAt,
-                messageCount: data.messageCount ?? 0,
+                messageCount: typeof data.messageCount === "number" ? data.messageCount : 0,
               };
             })
           );
@@ -167,7 +183,6 @@ export default function ConversationHistoryScreen() {
             const uid = auth().currentUser?.uid;
             if (!uid) return;
             try {
-              // Delete all messages in the subcollection first.
               const messagesRef = firestore()
                 .collection("users")
                 .doc(uid)
@@ -178,7 +193,6 @@ export default function ConversationHistoryScreen() {
               const messagesSnap = await messagesRef.get();
               const refs = messagesSnap.docs.map((doc) => doc.ref);
 
-              // Firestore batches are limited to 500 writes — chunk large chats.
               const BATCH_LIMIT = 400;
               for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
                 const batch = firestore().batch();
@@ -186,7 +200,6 @@ export default function ConversationHistoryScreen() {
                 await batch.commit();
               }
 
-              // Then delete the conversation document.
               await firestore()
                 .collection("users")
                 .doc(uid)
@@ -215,13 +228,11 @@ export default function ConversationHistoryScreen() {
         onLongPress={() => handleDelete(item)}
         activeOpacity={0.82}
       >
-        {/* Avatar */}
         <View style={[styles.avatar, avatarBg]}>
           <Text style={styles.avatarEmoji}>{emoji}</Text>
           <View style={[styles.avatarDot, { backgroundColor: color }]} />
         </View>
 
-        {/* Content */}
         <View style={styles.cardContent}>
           <View style={styles.cardTop}>
             <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
@@ -236,7 +247,6 @@ export default function ConversationHistoryScreen() {
           </View>
         </View>
 
-        {/* Arrow */}
         <Text style={styles.cardArrow}>›</Text>
       </TouchableOpacity>
     );
@@ -266,7 +276,6 @@ export default function ConversationHistoryScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backIcon}>←</Text>
@@ -280,7 +289,6 @@ export default function ConversationHistoryScreen() {
         </View>
       </View>
 
-      {/* Filter pills */}
       <View style={styles.pillsWrapper}>
         <FlatList
           data={ALL_FILTERS}
@@ -292,7 +300,6 @@ export default function ConversationHistoryScreen() {
         />
       </View>
 
-      {/* List */}
       <View style={styles.listWrapper}>
         {loading ? (
           <View style={styles.center}>
@@ -327,7 +334,6 @@ export default function ConversationHistoryScreen() {
         )}
       </View>
 
-      {/* Long press hint */}
       {filtered.length > 0 && (
         <View style={styles.hintBar}>
           <Text style={styles.hintText}>Long press a chat to delete it</Text>
@@ -374,7 +380,6 @@ const styles = StyleSheet.create({
   pillsRow: {
     paddingHorizontal: 16,
     paddingBottom: 14,
-    gap: 8,
     flexDirection: "row",
   },
   pill: {
@@ -384,11 +389,10 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 20,
     borderWidth: 1.5,
-    gap: 4,
     marginRight: 8,
   },
   pillInactive: { backgroundColor: colors.onPrimary, borderColor: colors.borderStrong },
-  pillEmoji: { fontSize: 13 },
+  pillEmoji: { fontSize: 13, marginRight: 4 },
   pillText: { fontSize: 13, fontWeight: "600" },
   pillTextActive: { color: "#FFF" },
   pillTextInactive: { color: "#7A5000" },

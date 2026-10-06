@@ -37,11 +37,9 @@ export default function UsageScreen() {
   } = useToken();
   const [refreshing, setRefreshing] = useState(false);
 
-  // Refresh on focus + allow pull-to-refresh. Count is synchronous on the
-  // backend now, so usage is correct immediately after each chat reply.
   useFocusEffect(
     useCallback(() => {
-      refreshPlan();
+      refreshPlan().catch(() => {});
     }, [refreshPlan])
   );
 
@@ -54,8 +52,6 @@ export default function UsageScreen() {
     }
   }, [refreshPlan]);
 
-  // 75% rule: gate the countdown on showRefillTimer === true. nextRefreshAt /
-  // refillInMs are always present for compat — ignore them unless the flag is set.
   const secondsLeft = useCountdown(showRefillTimer ? nextRefreshAt : null);
   const refillLabel = showRefillTimer
     ? nextRefreshAt

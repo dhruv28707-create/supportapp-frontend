@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   Alert,
   ScrollView,
@@ -30,24 +30,21 @@ export default function SettingsScreen() {
   const currentUser = auth().currentUser;
   const isLoggedIn = Boolean(currentUser);
 
-  // Refill countdown lives ONLY here: show it only when the backend says
-  // the quota is exhausted (showRefillTimer===true). Otherwise hide it.
   const secondsLeft = useCountdown(showRefillTimer ? nextRefreshAt : null);
   const showUsageBar = quotaPercent >= 0.75 && messagesTotal > 0;
+  const forwardedTab = useRef<string | null>(null);
 
-  // Refetch the plan whenever this screen gains focus (e.g. returning from
-  // the paywall after a purchase).
   useFocusEffect(
     useCallback(() => {
-      refreshPlan();
+      refreshPlan().catch(() => {});
     }, [refreshPlan])
   );
 
-  // Backward compat: Register used to navigate to Settings with
-  // { initialPolicyTab }. Forward it to the Policy screen directly.
   useEffect(() => {
     const tab = route.params?.initialPolicyTab;
-    if (typeof tab === 'string' && tab.length > 0) {
+    if (typeof tab === 'string' && tab.length > 0 && forwardedTab.current !== tab) {
+      forwardedTab.current = tab;
+      navigation.setParams({ initialPolicyTab: undefined } as any);
       navigation.navigate("Policy", { tab });
     }
   }, [navigation, route.params?.initialPolicyTab]);
@@ -65,12 +62,6 @@ export default function SettingsScreen() {
   }, []);
 
   const navigateToAuthRoot = () => {
-    // After sign-out / account deletion we want the app to show the
-    // Sign In / Create Account entry point, not the settings/policy tab.
-    // The onAuthStateChanged listener in AppNavigator will fire after
-    // signOut() and re-render the unauth stack (Auth/Login/Register).
-    // Reset to "Auth" (the unauth stack root) — "Lobby" does not exist
-    // there and would crash the reset.
     navigation.reset({
       index: 0,
       routes: [{ name: "Auth" }],
@@ -125,12 +116,10 @@ export default function SettingsScreen() {
                   style: "destructive",
                   onPress: async () => {
                     try {
-                      // 1. Cancel subscription first (idempotent — safe to always call)
                       await apiFetch('/api/payment-cancel', {
                         method: 'POST',
                       }).catch(() => {});
 
-                      // 2. Delete the account server-side
                       const res = await apiFetch('/api/account', {
                         method: 'DELETE',
                       });
@@ -153,7 +142,6 @@ export default function SettingsScreen() {
 
                       const data = await res.json();
 
-                      // 3. Optional client-side cleanup — AFTER the API call succeeds
                       if (data.chatDocsFailed && data.chatDocsFailed > 0) {
                         Alert.alert(
                           "Partial Deletion",
@@ -161,10 +149,6 @@ export default function SettingsScreen() {
                         );
                       }
 
-                      // The server already deleted the Firebase Auth user.
-                      // Just sign out locally — do NOT call currentUser.delete()
-                      // (the user no longer exists, so it would throw
-                      // auth/no-current-user or auth/user-not-found).
                       await auth().signOut();
                       navigateToAuthRoot();
                     } catch (error: any) {
@@ -219,13 +203,13 @@ export default function SettingsScreen() {
         <View style={styles.sectionLabel}>
           <Text style={styles.sectionLabelText}>SUBSCRIPTION</Text>
         </View>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => navigation.navigate("Usage")}
-        >
         <View style={[styles.planCard, { borderColor: planStyle.border, backgroundColor: planStyle.bg }]}>
           <View style={styles.planRow}>
-            <View style={styles.planInfoWrap}>
+            <TouchableOpacity
+              style={styles.planInfoWrap}
+              onPress={() => navigation.navigate("Usage")}
+              activeOpacity={0.85}
+            >
               <Text style={[styles.planName, { color: planStyle.text }]}>
                 {planInfo.name} Plan
               </Text>
@@ -252,7 +236,7 @@ export default function SettingsScreen() {
                 </Text>
               )}
               <Text style={styles.viewUsage}>View usage →</Text>
-            </View>
+            </TouchableOpacity>
             {planKey === 'free' && (
               <TouchableOpacity
                 style={styles.upgradeBtn}
@@ -264,7 +248,6 @@ export default function SettingsScreen() {
             )}
           </View>
         </View>
-        </TouchableOpacity>
           </>
         )}
 

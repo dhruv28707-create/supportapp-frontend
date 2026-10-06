@@ -43,29 +43,29 @@ const TokenContext = createContext<TokenContextType>({
 });
 
 export const TokenProvider = ({ children }: { children: React.ReactNode }) => {
-  const planInfo = usePlan();
+  const { plan, messagesRemaining, nextRefreshAt, isLimitReached, expiresAt, isTrial, trialEndsAt, trialUsed, trialAvailable, showRefillTimer, messagesUsed, messagesTotal, quotaPercent, refillInMs, refreshHours, loading, refreshPlan } = usePlan();
 
   const value = useMemo<TokenContextType>(
     () => ({
-      plan: planInfo.plan,
-      messagesRemaining: planInfo.messagesRemaining,
-      nextRefreshAt: planInfo.nextRefreshAt,
-      isLimitReached: planInfo.isLimitReached,
-      expiresAt: planInfo.expiresAt,
-      isTrial: planInfo.isTrial,
-      trialEndsAt: planInfo.trialEndsAt,
-      trialUsed: planInfo.trialUsed,
-      trialAvailable: planInfo.trialAvailable,
-      showRefillTimer: planInfo.showRefillTimer,
-      messagesUsed: planInfo.messagesUsed,
-      messagesTotal: planInfo.messagesTotal,
-      quotaPercent: planInfo.quotaPercent,
-      refillInMs: planInfo.refillInMs,
-      refreshHours: planInfo.refreshHours,
-      loading: planInfo.loading,
-      refreshPlan: planInfo.refreshPlan,
+      plan,
+      messagesRemaining,
+      nextRefreshAt,
+      isLimitReached,
+      expiresAt,
+      isTrial,
+      trialEndsAt,
+      trialUsed,
+      trialAvailable,
+      showRefillTimer,
+      messagesUsed,
+      messagesTotal,
+      quotaPercent,
+      refillInMs,
+      refreshHours,
+      loading,
+      refreshPlan,
     }),
-    [planInfo]
+    [plan, messagesRemaining, nextRefreshAt, isLimitReached, expiresAt, isTrial, trialEndsAt, trialUsed, trialAvailable, showRefillTimer, messagesUsed, messagesTotal, quotaPercent, refillInMs, refreshHours, loading, refreshPlan]
   );
 
   return (
