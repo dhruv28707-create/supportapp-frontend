@@ -13,10 +13,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GoogleSignin, statusCodes } from "@react-native-google-signin/google-signin";
 import { useNavigation } from "@react-navigation/native";
 import { colors, radius, spacing, shadow, typography } from "../theme";
 import { normalizeEmail, isValidEmail, extractGoogleIdToken, friendlyAuthError } from "../utils/auth";
+
+const TERMS_ACCEPTED_KEY = "safespace_terms_accepted_v1";
 
 export default function LoginScreen() {
   const nav = useNavigation<any>();
@@ -45,7 +48,40 @@ export default function LoginScreen() {
   };
 
   const handleGoogleSignIn = async () => {
+    if (loading) return;
+    // Consent is collected BEFORE any Firebase session is created, so a user
+    // who taps "Read Terms" simply stays on Login (they can go back and tap
+    // Google again) — we never sign anyone in just to sign them straight back
+    // out, which previously stranded them on the Policy screen post-signOut.
+    // Device acceptance is remembered so returning users are never re-prompted.
     try {
+      const alreadyAccepted = await AsyncStorage.getItem(TERMS_ACCEPTED_KEY);
+      if (alreadyAccepted !== "1") {
+        const accepted = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            "Terms & Privacy",
+            "To continue with Google you need to accept our Terms & Conditions and Privacy Policy.",
+            [
+              {
+                text: "Read Terms",
+                onPress: () => {
+                  nav.navigate("Policy", { tab: "terms" });
+                  resolve(false);
+                },
+              },
+              { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+              {
+                text: "Accept",
+                onPress: async () => {
+                  await AsyncStorage.setItem(TERMS_ACCEPTED_KEY, "1").catch(() => {});
+                  resolve(true);
+                },
+              },
+            ]
+          );
+        });
+        if (!accepted) return;
+      }
       setLoading(true);
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
@@ -60,27 +96,6 @@ export default function LoginScreen() {
 
       const userDoc = await firestore().collection("users").doc(uid).get();
       if (!userDoc.exists()) {
-        const accepted = await new Promise<boolean>((resolve) => {
-          Alert.alert(
-            "Terms & Privacy",
-            "To create your account you need to accept our Terms & Conditions and Privacy Policy.",
-            [
-              {
-                text: "Read Terms",
-                onPress: () => {
-                  nav.navigate("Policy", { tab: "terms" });
-                  resolve(false);
-                },
-              },
-              { text: "Decline", style: "cancel", onPress: () => resolve(false) },
-              { text: "Accept", onPress: () => resolve(true) },
-            ]
-          );
-        });
-        if (!accepted) {
-          await auth().signOut();
-          return;
-        }
         const displayName = userCredential.user.displayName || "";
         const nameParts = displayName.split(" ");
         await firestore().collection("users").doc(uid).set({

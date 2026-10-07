@@ -256,7 +256,11 @@ export default function RegisterScreen() {
           >
             {agreedToTerms && <Text style={styles.checkboxTick}>✓</Text>}
           </TouchableOpacity>
-          <Text style={styles.termsText}>
+          <Text
+            style={styles.termsText}
+            onPress={() => setAgreedToTerms((prev) => !prev)}
+            suppressHighlighting
+          >
             I agree to the{" "}
             <Text
               style={styles.termsLink}
@@ -277,7 +281,7 @@ export default function RegisterScreen() {
         <TouchableOpacity
           style={[
             styles.primaryButton,
-            loading && styles.primaryButtonDisabled,
+            (loading || !agreedToTerms) && styles.primaryButtonDisabled,
           ]}
           onPress={handleRegister}
           disabled={loading}
