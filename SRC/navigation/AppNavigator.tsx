@@ -60,7 +60,11 @@ export default function AppNavigator() {
   }
 
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    // Key forces a full nav-state reset on sign-in/out. Without this, routes
+    // that exist in both stacks (Policy) are preserved across the auth flip,
+    // so logging out from Settings could leave you stranded on Policy
+    // instead of landing on Auth/Login.
+    <Stack.Navigator key={user ? 'authed' : 'guest'} screenOptions={{ headerShown: false }}>
       {user ? (
         <>
           <Stack.Screen name="Lobby" component={Lobby} />
@@ -76,8 +80,9 @@ export default function AppNavigator() {
           <Stack.Screen name="Auth" component={AuthScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
-          <Stack.Screen name="Settings" component={SettingsScreen} />
-          <Stack.Screen name="Usage" component={UsageScreen} />
+          {/* Policy stays in the guest stack so Login/Register "Read Terms"
+              links work. Settings/Usage are auth-only and intentionally
+              omitted here so a sign-out can never retain them. */}
           <Stack.Screen name="Policy" component={PolicyScreen} />
         </>
       )}

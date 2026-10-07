@@ -62,10 +62,12 @@ export default function SettingsScreen() {
   }, []);
 
   const navigateToAuthRoot = () => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "Auth" }],
-    });
+    try {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Auth" }],
+      });
+    } catch {}
   };
 
   const handleLogout = () => {

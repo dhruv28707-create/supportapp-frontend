@@ -30,6 +30,12 @@ export function friendlyAuthError(error: any, fallback: string): string {
   const code = typeof error?.code === 'string' ? error.code : '';
   if (code && FRIENDLY_AUTH_ERRORS[code]) return FRIENDLY_AUTH_ERRORS[code];
   const msg = typeof error?.message === 'string' ? error.message : '';
+  // react-native-google-signin config failures (wrong webClientId, SHA-1 not
+  // registered, stale google-services.json) surface as DEVELOPER_ERROR /
+  // code 10. This is never a wrong-password case — tell the user plainly.
+  if (code === 'DEVELOPER_ERROR' || /DEVELOPER_ERROR/i.test(msg) || code === '10') {
+    return 'Google sign-in is misconfigured on this build (DEVELOPER_ERROR). Please update the app and try again. If it persists, contact support.';
+  }
   if (/auth\//.test(msg)) return fallback;
   return msg || fallback;
 }

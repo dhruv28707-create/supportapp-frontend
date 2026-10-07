@@ -10,7 +10,17 @@ import { GOOGLE_WEB_CLIENT_ID } from "./SRC/constants";
 
 GoogleSignin.configure({
   webClientId: GOOGLE_WEB_CLIENT_ID,
+  offlineAccess: true,
+  scopes: ['profile', 'email'],
 });
+
+if (__DEV__ && /placeholder|SET_ME_IN_ENV/i.test(GOOGLE_WEB_CLIENT_ID)) {
+  console.warn(
+    '[GoogleSignin] GOOGLE_WEB_CLIENT_ID is a placeholder. ' +
+      'Set it in .env (must be the Web-application client from google-services.json / Firebase console) ' +
+      'or every sign-in will fail with DEVELOPER_ERROR.'
+  );
+}
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
