@@ -76,8 +76,10 @@ yarn-error.log
 
 # Firebase app config contains API keys — keep the repo private
 # or inject at build time instead of committing.
-google-services.json
-GoogleService-Info.plist
+# **/ prefix ensures `git add .` never re-adds it from any folder,
+# even though basename-only patterns usually match too.
+**/google-services.json
+**/GoogleService-Info.plist
 android/app/google-services.json
 ios/GoogleService-Info.plist
 
