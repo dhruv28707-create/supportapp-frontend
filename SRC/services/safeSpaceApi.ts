@@ -202,6 +202,49 @@ export function cancelSubscription(): Promise<{ ok: boolean; message: string }> 
   );
 }
 
+/**
+ * DELETE /api/account — server-side purge only.
+ *
+ * The purge can take 60s+, so callers must pass a long timeout (60-90s).
+ * Returns the raw status + parsed body WITHOUT throwing so the caller can
+ * branch exactly per backend contract:
+ *   200 { success:true, firebaseAuthDeleted !== false } → deleted, safe to sign out
+ *   500 { code:'auth_delete_failed' }                  → Auth record survived, stay signed in
+ *   409 { code:'active_subscription' }                 → cancel first, then retry
+ *   401 { code:'auth/user-not-found' }                 → already deleted, safe to sign out
+ *
+ * Do NOT call currentUser.delete() and do NOT delete Firestore docs
+ * client-side (firestore.rules denies user doc delete for non-admins).
+ * Never treat timeout/abort as success — let it throw to the caller.
+ */
+export const DELETE_ACCOUNT_TIMEOUT_MS = 75_000;
+
+export interface DeleteAccountResponse {
+  status: number;
+  body: any;
+}
+
+export async function requestAccountDeletion(
+  timeoutMs: number = DELETE_ACCOUNT_TIMEOUT_MS,
+): Promise<DeleteAccountResponse> {
+  try {
+    const res = await apiFetch('/api/account', { method: 'DELETE' }, timeoutMs);
+    const body = await res.json().catch(() => ({}));
+    return { status: res.status, body };
+  } catch (e: any) {
+    // apiFetch throws ApiError(401) instead of returning the 401 response
+    // (it refreshes the token once, then signs out locally). For the delete
+    // flow that means "token no longer valid" — i.e. the Auth record is
+    // already gone — so surface it as data, not a throw, letting the caller
+    // take the already-deleted + sign-out path. Timeouts/aborts rethrow:
+    // they must never look like success.
+    if (e?.name === 'ApiError' && e?.status === 401) {
+      return { status: 401, body: { code: 'auth/user-not-found', error: e?.message } };
+    }
+    throw e;
+  }
+}
+
 /** Order -> Razorpay checkout -> verify. Returns the fresh plan. */
 export async function buyPlan(
   tier: string,

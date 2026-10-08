@@ -13,10 +13,15 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useToken } from "../context/TokenContext";
 import { PLAN_COLORS, PLANS, PlanKey, APP_VERSION } from "../constants";
 import { useCountdown, formatRefreshIn } from "../hooks/useCountdown";
-import { apiFetch } from "../api/client";
+import { ApiError } from "../api/client";
+import {
+  cancelSubscription,
+  requestAccountDeletion,
+} from "../services/safeSpaceApi";
 import { colors } from "../theme";
 import { friendlyAuthError } from "../utils/auth";
 
@@ -27,6 +32,7 @@ export default function SettingsScreen() {
   const route = useRoute<any>();
   const { plan, messagesRemaining, nextRefreshAt, expiresAt, isTrial, trialEndsAt, refreshPlan, showRefillTimer, messagesUsed, messagesTotal, quotaPercent } = useToken();
   const [userProfile, setUserProfile] = useState<any>(null);
+  const [deleting, setDeleting] = useState(false);
   const currentUser = auth().currentUser;
   const isLoggedIn = Boolean(currentUser);
 
@@ -98,7 +104,35 @@ export default function SettingsScreen() {
     );
   };
 
+  const clearLocalStateAfterDelete = async () => {
+    setUserProfile(null);
+    try {
+      await AsyncStorage.removeItem('safespace:trial-banner-dismissed');
+    } catch {}
+    // Note: TokenContext/usePlan resets to DEFAULT_PLAN automatically via
+    // onAuthStateChanged once we sign out — no refreshPlan() here, the token
+    // is dead at this point and a fetch would just fail.
+  };
+
+  const finishDeletedAndSignOut = async () => {
+    await clearLocalStateAfterDelete();
+    try {
+      await auth().signOut();
+    } catch {}
+    navigateToAuthRoot();
+  };
+
+  const isAbortOrTimeout = (e: any) => {
+    const name = typeof e?.name === 'string' ? e.name : '';
+    const msg = typeof e?.message === 'string' ? e.message : '';
+    return (
+      name === 'AbortError' ||
+      /abort|timed out|timeout|network request failed/i.test(msg)
+    );
+  };
+
   const handleDeleteAccount = () => {
+    if (deleting) return;
     Alert.alert(
       "Delete Account",
       "This will permanently delete your account and all your conversations. This cannot be undone. We will also try to cancel your subscription automatically.",
@@ -117,44 +151,110 @@ export default function SettingsScreen() {
                   text: "Yes, Delete Everything",
                   style: "destructive",
                   onPress: async () => {
+                    if (deleting) return;
+                    setDeleting(true);
                     try {
-                      await apiFetch('/api/payment-cancel', {
-                        method: 'POST',
-                      }).catch(() => {});
+                      // 1. Long-timeout DELETE — the server purge can take 60s+.
+                      //    Never treat timeout/abort as success.
+                      //    Never call currentUser.delete() and never delete
+                      //    Firestore docs client-side (rules deny it).
+                      let result = await requestAccountDeletion();
 
-                      const res = await apiFetch('/api/account', {
-                        method: 'DELETE',
-                      });
-
-                      if (res.status === 409) {
-                        const data = await res.json();
-                        if (data.code === 'active_subscription') {
+                      // 4a. Active subscription → force-cancel, then retry once.
+                      if (result.status === 409 && result.body?.code === 'active_subscription') {
+                        try {
+                          await cancelSubscription();
+                        } catch (cancelErr: any) {
+                          if (cancelErr instanceof ApiError && cancelErr.status === 401) {
+                            await finishDeletedAndSignOut();
+                            return;
+                          }
                           Alert.alert(
                             "Active Subscription",
-                            "Please cancel your subscription first before deleting your account.",
+                            friendlyAuthError(cancelErr, "Please cancel your subscription first before deleting your account."),
+                          );
+                          return;
+                        }
+                        result = await requestAccountDeletion();
+                        if (result.status === 409 && result.body?.code === 'active_subscription') {
+                          Alert.alert(
+                            "Active Subscription",
+                            "Your subscription is still active. Please cancel it and try deleting again.",
                           );
                           return;
                         }
                       }
 
-                      if (!res.ok) {
-                        const body = await res.json().catch(() => ({}));
-                        throw new Error(body.error || 'Account deletion failed');
+                      // 4b. Already deleted server-side → safe to sign out.
+                      if (
+                        result.status === 401 &&
+                        (result.body?.code === 'auth/user-not-found' ||
+                          /user-not-found/i.test(result.body?.error ?? ''))
+                      ) {
+                        await finishDeletedAndSignOut();
+                        return;
                       }
 
-                      const data = await res.json();
+                      // 2. ONLY true success signs out:
+                      //    200 + success:true + firebaseAuthDeleted !== false.
+                      if (
+                        result.status === 200 &&
+                        result.body?.success === true &&
+                        result.body?.firebaseAuthDeleted !== false
+                      ) {
+                        if (result.body?.chatDocsFailed && result.body.chatDocsFailed > 0) {
+                          Alert.alert(
+                            "Partial Deletion",
+                            `Your account was deleted, but ${result.body.chatDocsFailed} chat document(s) couldn't be removed. Contact support if this is an issue.`,
+                          );
+                        }
+                        await finishDeletedAndSignOut();
+                        return;
+                      }
 
-                      if (data.chatDocsFailed && data.chatDocsFailed > 0) {
+                      // 3. Backend tells the truth on failure:
+                      //    500 { code:'auth_delete_failed' } or
+                      //    success:false / firebaseAuthDeleted === false.
+                      //    Stay signed in — the Auth record survived.
+                      if (
+                        result.status === 500 ||
+                        result.body?.code === 'auth_delete_failed' ||
+                        result.body?.firebaseAuthDeleted === false ||
+                        result.body?.success === false
+                      ) {
                         Alert.alert(
-                          "Partial Deletion",
-                          `Your account was deleted, but ${data.chatDocsFailed} chat document(s) couldn't be removed. Contact support if this is an issue.`,
+                          "Account deletion failed",
+                          result.body?.error ||
+                            "We couldn't delete your account. Please try again. You are still signed in.",
                         );
+                        return;
                       }
 
-                      await auth().signOut();
-                      navigateToAuthRoot();
+                      // Any other non-success status → stay signed in.
+                      Alert.alert(
+                        "Account deletion failed",
+                        result.body?.error ||
+                          "We couldn't delete your account. Please try again. You are still signed in.",
+                      );
                     } catch (error: any) {
-                      Alert.alert("Error", friendlyAuthError(error, "Could not delete your account. Please try again."));
+                      // 401 via apiFetch means the token refresh failed and
+                      // apiFetch already signed out locally. If the backend
+                      // says the user is gone, treat as already deleted;
+                      // otherwise stay signed in and report failure.
+                      if (error instanceof ApiError && error.status === 401) {
+                        await finishDeletedAndSignOut();
+                        return;
+                      }
+                      if (isAbortOrTimeout(error)) {
+                        Alert.alert(
+                          "Account deletion failed",
+                          "The request timed out and your account was NOT deleted. You are still signed in — please try again.",
+                        );
+                        return;
+                      }
+                      Alert.alert("Error", friendlyAuthError(error, "Could not delete your account. Please try again. You are still signed in."));
+                    } finally {
+                      setDeleting(false);
                     }
                   },
                 },

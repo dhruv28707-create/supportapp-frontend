@@ -16,6 +16,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 export async function apiFetch(
   path: string,
   options: RequestInit = {},
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<Response> {
   const user = auth().currentUser;
   if (!user) {
@@ -30,7 +31,7 @@ export async function apiFetch(
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const idToken = await user.getIdToken(forceRefresh);
       const response = await fetch(`${BACKEND_URL}${path}`, {
