@@ -344,6 +344,13 @@ type Message = {
   sender: "user" | "ai";
   personality?: string;
   religionSubType?: string | null;
+  /** True only for a user turn or a completed assistant reply. */
+  isConversationMessage?: boolean;
+};
+
+type ChatHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
 };
 
 const conversationsRef = (uid: string) =>
@@ -373,6 +380,34 @@ const normalizeReligion = (value: unknown): string | undefined => {
 
 const normalizeNewlines = (text: string): string =>
   text.replace(/\\r\\n|\\n/g, "\n").replace(/\r\n/g, "\n");
+
+const getChatHistory = (messages: Message[]): ChatHistoryMessage[] => {
+  const seenIds = new Set<string>();
+
+  return messages
+    .filter((message) => {
+      if (!message.isConversationMessage || !message.text.trim() || seenIds.has(message.id)) {
+        return false;
+      }
+      seenIds.add(message.id);
+      return true;
+    })
+    .slice(-16)
+    .map((message) => ({
+      role: message.sender === "user" ? "user" : "assistant",
+      content: message.text,
+    }));
+};
+
+const withoutRetriedMessage = (messages: Message[], text: string): Message[] => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.isConversationMessage && message.sender === "user" && message.text === text) {
+      return [...messages.slice(0, index), ...messages.slice(index + 1)];
+    }
+  }
+  return messages;
+};
 
 export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
@@ -478,6 +513,7 @@ export default function ChatScreen() {
       sender: "ai",
       personality,
       religionSubType,
+      isConversationMessage: false,
     };
     setMessages([welcome]);
     // Stranger never reopens a saved conversation — always start fresh.
@@ -493,6 +529,7 @@ export default function ChatScreen() {
       sender: "ai",
       personality,
       religionSubType,
+      isConversationMessage: false,
     };
     let unsubscribeHistory: undefined | (() => void);
 
@@ -513,12 +550,14 @@ export default function ChatScreen() {
             (snapshot) => {
               const savedMessages = snapshot.docs.map((doc) => {
                 const data = doc.data();
+                const sender = data.role === "user" || data.sender === "user" ? "user" : "ai";
                 return {
                   id: doc.id,
-                  text: normalizeNewlines(data.text ?? ""),
-                  sender: data.sender === "user" ? "user" : "ai",
+                  text: normalizeNewlines(data.content ?? data.text ?? ""),
+                  sender,
                   personality: data.personality || personality,
-                  religionSubType: data.religionSubType || religionSubType,
+                  religionSubType: religionSubType,
+                  isConversationMessage: Boolean(data.content ?? data.text),
                 } as Message;
               });
               setMessages((prev) =>
@@ -608,7 +647,9 @@ export default function ChatScreen() {
       id: makeMessageId(),
       text: currentInput,
       sender: "user",
+      isConversationMessage: true,
     };
+    const priorMessages = opts?.retry ? withoutRetriedMessage(messages, currentInput) : messages;
     if (!opts?.retry) {
       setMessages((prev) => [...prev, userMessage]);
       setInput("");
@@ -633,7 +674,10 @@ export default function ChatScreen() {
           await conversationMessagesRef(uid, activeConversationId).doc(userMessage.id).set({
             text: userMessage.text,
             sender: userMessage.sender,
+            content: userMessage.text,
+            role: "user",
             personality: storedPersonality,
+            ...(personality === "Guide" && religionSubType ? { religionSubType } : {}),
             createdAt: firestore.FieldValue.serverTimestamp(),
           });
           await conversationRef(uid, activeConversationId).set(
@@ -650,11 +694,19 @@ export default function ChatScreen() {
         }
       }
 
-      const requestBody: { message: string; personality?: string; religionSubType?: string } = {
+      const requestBody: {
+        message: string;
+        messages?: ChatHistoryMessage[];
+        personality: string;
+        religionSubType?: string;
+      } = {
         message: currentInput,
         personality: isStranger ? "Stranger" : personality,
       };
-      if (!isStranger && personality === "Guide" && religionSubType) {
+      if (!isStranger) {
+        requestBody.messages = getChatHistory(priorMessages);
+      }
+      if (personality === "Guide" && religionSubType) {
         requestBody.religionSubType = religionSubType;
       }
 
@@ -714,7 +766,8 @@ export default function ChatScreen() {
         text: aiText,
         sender: "ai",
         personality: echoedPersonality,
-        religionSubType: isStranger ? undefined : (data.religionSubType || religionSubType),
+        religionSubType: isStranger ? undefined : religionSubType,
+        isConversationMessage: true,
       };
 
       if (!isStranger && activeConversationId) {
@@ -722,7 +775,10 @@ export default function ChatScreen() {
           await conversationMessagesRef(uid, activeConversationId).doc(aiReply.id).set({
             text: aiReply.text,
             sender: aiReply.sender,
+            content: aiReply.text,
+            role: "assistant",
             personality: echoedPersonality,
+            ...(personality === "Guide" && religionSubType ? { religionSubType } : {}),
             createdAt: firestore.FieldValue.serverTimestamp(),
           });
           await conversationRef(uid, activeConversationId).set(
