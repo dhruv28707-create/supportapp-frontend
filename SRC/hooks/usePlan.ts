@@ -23,6 +23,10 @@ export interface PlanInfo {
   refillInMs: number | null;
   /** Refresh window in hours (from /api/user/usage). */
   refreshHours: number | null;
+  /** Server-granted developer account. Only source of truth for developer UI. */
+  isDeveloper: boolean;
+  /** True when the backend grants unlimited chat quota (developer accounts). */
+  unlimited: boolean;
 }
 
 const DEFAULT_PLAN: PlanInfo = {
@@ -41,6 +45,8 @@ const DEFAULT_PLAN: PlanInfo = {
   quotaPercent: 0,
   refillInMs: null,
   refreshHours: null,
+  isDeveloper: false,
+  unlimited: false,
 };
 
 export function usePlan() {
@@ -98,6 +104,8 @@ export function usePlan() {
           quotaPercent,
           refillInMs: typeof data.refillInMs === 'number' ? data.refillInMs : null,
           refreshHours: typeof data.refreshHours === 'number' ? data.refreshHours : null,
+          isDeveloper: data.isDeveloper === true,
+          unlimited: data.unlimited === true,
         };
         setPlanInfo(fresh);
         return fresh;
@@ -109,6 +117,23 @@ export function usePlan() {
       setLoading(false);
     }
   }, []);
+
+  /**
+   * Developer access is granted server-side. When the backend tells us we are
+   * (or are no longer) a developer, force one ID-token refresh so the new
+   * claims are visible, then re-read plan/usage. Intentionally not retried.
+   */
+  const refreshDeveloperAccess = useCallback(async (): Promise<PlanInfo> => {
+    const user = auth().currentUser;
+    if (user) {
+      try {
+        await user.getIdToken(true);
+      } catch (e) {
+        if (__DEV__) console.log('usePlan developer token refresh error:', e);
+      }
+    }
+    return refreshPlan();
+  }, [refreshPlan]);
 
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged(() => {
@@ -142,5 +167,5 @@ export function usePlan() {
     };
   }, [refreshPlan]);
 
-  return { ...planInfo, loading, refreshPlan };
+  return { ...planInfo, loading, refreshPlan, refreshDeveloperAccess };
 }

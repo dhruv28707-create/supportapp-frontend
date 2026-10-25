@@ -21,6 +21,10 @@ export interface PlanState {
   quotaPercent: number;
   refillInMs: number | null;
   refreshHours: number | null;
+  /** Server-granted developer account. Only source of truth for developer UI. */
+  isDeveloper: boolean;
+  /** True when the backend grants unlimited chat quota (developer accounts). */
+  unlimited: boolean;
 }
 
 export interface PlanOption {
@@ -95,6 +99,8 @@ function toPlanState(data: any): PlanState {
     quotaPercent,
     refillInMs: typeof data?.refillInMs === 'number' ? data.refillInMs : null,
     refreshHours: typeof data?.refreshHours === 'number' ? data.refreshHours : null,
+    isDeveloper: data?.isDeveloper === true,
+    unlimited: data?.unlimited === true,
   };
 }
 

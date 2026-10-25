@@ -17,7 +17,7 @@ export function trialDaysLeft(trialEndsAt: number | string | null): number {
 }
 
 export default function TrialBanner({ compact = false }: { compact?: boolean }) {
-  const { isTrial, trialEndsAt, trialAvailable, refreshPlan } = useToken();
+  const { isTrial, trialEndsAt, trialAvailable, isDeveloper, refreshPlan, refreshDeveloperAccess } = useToken();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cooling, setCooling] = useState(false);
@@ -46,6 +46,11 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
     } catch (e: any) {
       const code = e instanceof TrialApiError ? e.code : undefined;
       const status = e instanceof TrialApiError ? e.status : undefined;
+      if (code === 'developer_account') {
+        setError('Developer accounts already have full access');
+        await refreshDeveloperAccess().catch(() => {});
+        return;
+      }
       if (
         code === 'trial_already_used' ||
         code === 'already_subscribed' ||
@@ -63,6 +68,9 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
       setBusy(false);
     }
   };
+
+  // Developer accounts already have Ultimate + unlimited quota — no trial UI.
+  if (isDeveloper) return null;
 
   if (isTrial) {
     const left = trialDaysLeft(trialEndsAt);

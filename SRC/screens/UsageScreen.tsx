@@ -12,6 +12,7 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
+import DeveloperBadge from "../components/DeveloperBadge";
 import { PLAN_COLORS, PLANS, PlanKey } from "../constants";
 import { useCountdown, formatCountdown, formatRefreshIn } from "../hooks/useCountdown";
 import { colors } from "../theme";
@@ -33,6 +34,7 @@ export default function UsageScreen() {
     showRefillTimer,
     isTrial,
     trialEndsAt,
+    isDeveloper,
     refreshPlan,
   } = useToken();
   const [refreshing, setRefreshing] = useState(false);
@@ -52,14 +54,15 @@ export default function UsageScreen() {
     }
   }, [refreshPlan]);
 
-  const secondsLeft = useCountdown(showRefillTimer ? nextRefreshAt : null);
-  const refillLabel = showRefillTimer
-    ? nextRefreshAt
-      ? `Refills in ${formatCountdown(secondsLeft)}`
-      : typeof refillInMs === 'number' && refillInMs > 0
-        ? `Refills in ${formatRefreshIn(Math.ceil(refillInMs / 1000))}`
-        : "Refilling soon"
-    : null;
+  const secondsLeft = useCountdown(!isDeveloper && showRefillTimer ? nextRefreshAt : null);
+  const refillLabel =
+    !isDeveloper && showRefillTimer
+      ? nextRefreshAt
+        ? `Refills in ${formatCountdown(secondsLeft)}`
+        : typeof refillInMs === 'number' && refillInMs > 0
+          ? `Refills in ${formatRefreshIn(Math.ceil(refillInMs / 1000))}`
+          : "Refilling soon"
+      : null;
 
   const planKey: PlanKey = (plan === 'pro' || plan === 'ultimate') ? (plan as PlanKey) : 'free';
   const planStyle = PLAN_COLORS[planKey] ?? PLAN_COLORS.free;
@@ -83,39 +86,58 @@ export default function UsageScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={[styles.card, { borderColor: planStyle.border, backgroundColor: planStyle.bg }]}>
-          <Text style={[styles.planName, { color: planStyle.text }]}>
-            {planInfo.name} Plan
-          </Text>
-          <Text style={styles.usageNumbers}>
-            {messagesUsed}/{messagesTotal} used · {messagesRemaining} left
-          </Text>
-
-          <View style={styles.barTrack}>
-            <View style={[styles.barFill, { width: `${percent}%` }]} />
-          </View>
-          <Text style={styles.percentText}>{percent}% used</Text>
-
-          {refillLabel && (
-            <Text style={styles.refillText}>💛 {refillLabel}</Text>
-          )}
-          {!showRefillTimer && typeof refreshHours === 'number' && (
-            <Text style={styles.hintText}>Refreshes every {refreshHours}h</Text>
-          )}
-          {isLimitReached && !showRefillTimer && (
-            <Text style={styles.refillText}>Message limit reached — please try again in a bit.</Text>
-          )}
-          {isTrial && trialEndsAt && (
-            <Text style={styles.trialText}>
-              Ultimate trial ends on {new Date(trialEndsAt).toLocaleDateString()}
+          <View style={styles.planTitleRow}>
+            <Text style={[styles.planName, { color: planStyle.text }]}>
+              {planInfo.name} Plan
             </Text>
+            {isDeveloper && <DeveloperBadge compact />}
+          </View>
+
+          {isDeveloper ? (
+            <>
+              <Text style={[styles.unlimitedText, { color: planStyle.text }]}>
+                Unlimited (Developer)
+              </Text>
+              <Text style={styles.hintText}>
+                Server-granted developer access. No chat quota is consumed.
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.usageNumbers}>
+                {messagesUsed}/{messagesTotal} used · {messagesRemaining} left
+              </Text>
+
+              <View style={styles.barTrack}>
+                <View style={[styles.barFill, { width: `${percent}%` }]} />
+              </View>
+              <Text style={styles.percentText}>{percent}% used</Text>
+
+              {refillLabel && (
+                <Text style={styles.refillText}>💛 {refillLabel}</Text>
+              )}
+              {!showRefillTimer && typeof refreshHours === 'number' && (
+                <Text style={styles.hintText}>Refreshes every {refreshHours}h</Text>
+              )}
+              {isLimitReached && !showRefillTimer && (
+                <Text style={styles.refillText}>Message limit reached — please try again in a bit.</Text>
+              )}
+              {isTrial && trialEndsAt && (
+                <Text style={styles.trialText}>
+                  Ultimate trial ends on {new Date(trialEndsAt).toLocaleDateString()}
+                </Text>
+              )}
+            </>
           )}
         </View>
 
-        <Text style={styles.note}>
-          Stranger chats count toward your quota like normal messages.
-        </Text>
+        {!isDeveloper && (
+          <Text style={styles.note}>
+            Stranger chats count toward your quota like normal messages.
+          </Text>
+        )}
 
-        {planKey === 'free' && (
+        {!isDeveloper && planKey === 'free' && (
           <TouchableOpacity
             style={styles.upgradeBtn}
             onPress={() => navigation.navigate("Paywall")}
@@ -151,7 +173,9 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: colors.background },
   scrollContent: { padding: 20, paddingBottom: 48 },
   card: { borderRadius: 16, borderWidth: 1.5, padding: 18 },
+  planTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   planName: { fontSize: 18, fontWeight: "700" },
+  unlimitedText: { fontSize: 16, fontWeight: "800", marginTop: 8 },
   usageNumbers: { fontSize: 14, color: colors.textSubtle, marginTop: 4, fontWeight: "600" },
   barTrack: {
     height: 8, borderRadius: 4, backgroundColor: colors.border,

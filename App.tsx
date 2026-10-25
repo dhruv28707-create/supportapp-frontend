@@ -1,15 +1,16 @@
 import React, { useState } from "react";
-import { Text, View, StyleSheet } from "react-native";
+import { Platform, Text, View, StyleSheet } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import AppNavigator from "./SRC/navigation/AppNavigator";
 import { TokenProvider } from "./SRC/context/TokenContext";
 import SplashScreen from "./SRC/screens/SplashScreen";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
-import { GOOGLE_WEB_CLIENT_ID } from "./SRC/constants";
+import { GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from "./SRC/constants";
 
 GoogleSignin.configure({
   webClientId: GOOGLE_WEB_CLIENT_ID,
+  ...(GOOGLE_IOS_CLIENT_ID ? { iosClientId: GOOGLE_IOS_CLIENT_ID } : {}),
   offlineAccess: true,
   scopes: ['profile', 'email'],
 });
@@ -19,6 +20,13 @@ if (__DEV__ && /placeholder|SET_ME_IN_ENV/i.test(GOOGLE_WEB_CLIENT_ID)) {
     '[GoogleSignin] GOOGLE_WEB_CLIENT_ID is a placeholder. ' +
       'Set it in .env (must be the Web-application client from google-services.json / Firebase console) ' +
       'or every sign-in will fail with DEVELOPER_ERROR.'
+  );
+}
+
+if (__DEV__ && Platform.OS === 'ios' && !GOOGLE_IOS_CLIENT_ID) {
+  console.warn(
+    '[GoogleSignin] GOOGLE_IOS_CLIENT_ID is not set. iOS Google sign-in requires the iOS OAuth client ID, ' +
+      'a GoogleService-Info.plist added to the Xcode target, and its reversed client ID URL scheme.'
   );
 }
 

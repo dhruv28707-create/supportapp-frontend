@@ -15,22 +15,11 @@ import { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
 import auth from "@react-native-firebase/auth";
 import RazorpayCheckout from "react-native-razorpay";
-import { RAZORPAY_KEY_ID } from "../constants";
 import { apiFetch } from "../api/client";
 import { startUltimateTrial, fetchPlans, TrialApiError } from "../services/safeSpaceApi";
 import { trialDaysLeft } from "../components/TrialBanner";
+import DeveloperBadge from "../components/DeveloperBadge";
 import { colors } from "../theme";
-
-function safeRazorpayKey(): string {
-  const key = RAZORPAY_KEY_ID;
-  if (/^rzp_(live|test)_/.test(key)) {
-    return key;
-  }
-  throw new Error(
-    "Razorpay key_id is not configured. Set RAZORPAY_KEY_ID in your environment " +
-    "(or ./secrets.ts locally) before opening the checkout."
-  );
-}
 
 // Offline prices only. Backend catalog is the source of truth.
 const FALLBACK_PLANS = {
@@ -38,7 +27,6 @@ const FALLBACK_PLANS = {
     name: "Pro",
     monthlyPrice: 179,
     yearlyPrice: 699,
-    yearlySaving: 459,
     color: colors.primary,
     textColor: colors.text,
     cardBg: "#FFFFFF",
@@ -58,7 +46,6 @@ const FALLBACK_PLANS = {
     name: "Ultimate",
     monthlyPrice: 199,
     yearlyPrice: 799,
-    yearlySaving: 589,
     color: colors.onPrimary,
     textColor: colors.onPrimary,
     cardBg: colors.primary,
@@ -78,11 +65,33 @@ const FALLBACK_PLANS = {
 // Short delay so verify/webhook can persist the new tier before we re-read it.
 const PLAN_POLL_DELAY_MS = 4000;
 
+const normalizePlanKey = (tierOrId?: string | null, period?: string | null): string | null => {
+  if (!tierOrId) return null;
+  const normalized = tierOrId.trim().toLowerCase();
+  if (!normalized) return null;
+  const withPeriod = normalized.match(/^(.*)_(monthly|yearly)$/);
+  if (withPeriod) return `${withPeriod[1]}_${withPeriod[2]}`;
+  const normalizedPeriod = typeof period === "string" ? period.trim().toLowerCase() : "";
+  if (normalizedPeriod === "monthly" || normalizedPeriod === "yearly") {
+    return `${normalized}_${normalizedPeriod}`;
+  }
+  return normalized;
+};
+
 export default function PaywallScreen() {
   type PaywallNavProp = NativeStackNavigationProp<RootStackParamList>;
 
   const navigation = useNavigation<PaywallNavProp>();
-  const { plan, refreshPlan, isTrial, trialEndsAt, trialAvailable, trialUsed } = useToken();
+  const {
+    plan,
+    refreshPlan,
+    isTrial,
+    trialEndsAt,
+    trialAvailable,
+    trialUsed,
+    isDeveloper,
+    refreshDeveloperAccess,
+  } = useToken();
 
   const normalizedPlan = (plan ?? "").toLowerCase();
   const activePlanKey: "pro" | "ultimate" | null =
@@ -112,7 +121,7 @@ export default function PaywallScreen() {
         const prices: Record<string, number> = {};
         const meta: Record<string, { messageLimit: number; refreshHours: number }> = {};
         for (const o of options) {
-          const key = o.tier || o.id;
+          const key = normalizePlanKey(o.tier || o.id, o.period);
           if (!key) continue;
           const amount =
             typeof o.amount === "number"
@@ -147,6 +156,13 @@ export default function PaywallScreen() {
     } catch (error: any) {
       const code = error instanceof TrialApiError ? error.code : undefined;
       const status = error instanceof TrialApiError ? error.status : undefined;
+      if (code === 'developer_account') {
+        // Server granted (or already recognizes) developer status — refresh
+        // the token once, then re-read plan/usage. Never retry the trial.
+        setTrialError('Developer accounts already have full access');
+        await refreshDeveloperAccess().catch(() => {});
+        return;
+      }
       if (
         code === 'trial_already_used' ||
         code === 'already_subscribed' ||
@@ -191,6 +207,14 @@ export default function PaywallScreen() {
 
       const orderData = await orderRes.json().catch(() => ({}));
 
+      if (orderRes.status === 409 && orderData?.code === 'developer_account') {
+        // Developer access is already active. Refresh once, hide the CTAs and
+        // never retry the payment order.
+        await refreshDeveloperAccess().catch(() => {});
+        Alert.alert('Developer account', 'Developer accounts already have full access.');
+        return;
+      }
+
       if (orderRes.status === 429) {
         throw new Error(
           orderData?.error ||
@@ -202,10 +226,15 @@ export default function PaywallScreen() {
         throw new Error(orderData?.error || "Failed to create order");
       }
 
+      const razorpayKey = orderData.keyId || orderData.key;
+      if (!razorpayKey || !orderData.orderId) {
+        throw new Error("Payment order is missing a Razorpay key or order id. Please try again.");
+      }
+
       const options = {
         description: `${FALLBACK_PLANS[planKey].name} Plan – ${billingCycle === "monthly" ? "Monthly" : "Yearly"}`,
         currency: orderData.currency || "INR",
-        key: orderData.keyId || orderData.key || safeRazorpayKey(),
+        key: razorpayKey,
         amount: orderData.amount,
         order_id: orderData.orderId,
         name: "SafeSpace",
@@ -320,6 +349,36 @@ export default function PaywallScreen() {
     );
   }
 
+  if (isDeveloper) {
+    return (
+      <SafeAreaView style={styles.safe} edges={["top"]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Text style={styles.backText}>← Back</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Upgrade</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <Text style={styles.heroTitle}>Developer access</Text>
+          <Text style={styles.heroSub}>Your account already has full access</Text>
+
+          <View style={styles.allOwnedCard}>
+            <DeveloperBadge />
+            <Text style={[styles.allOwnedTitle, styles.developerHeadline]}>
+              Unlimited (Developer)
+            </Text>
+            <Text style={styles.allOwnedSub}>
+              Every persona is unlocked and messages never consume quota. Plans, trials,
+              and payments are disabled for developer accounts.
+            </Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>
@@ -417,8 +476,17 @@ export default function PaywallScreen() {
             {Object.entries(FALLBACK_PLANS).map(([key, planItem]) => {
               if (key === "pro" && (activePlanKey === "pro" || activePlanKey === "ultimate")) return null;
               const tierKey = `${key}_${billingCycle}`;
-              const backendPrice = catalogPrices?.[tierKey];
-              const shownPrice = backendPrice ?? (billingCycle === "monthly" ? planItem.monthlyPrice : planItem.yearlyPrice);
+              const monthlyPrice = catalogPrices?.[`${key}_monthly`];
+              const yearlyPrice = catalogPrices?.[`${key}_yearly`];
+              const shownPrice =
+                (billingCycle === "monthly" ? monthlyPrice : yearlyPrice) ??
+                (billingCycle === "monthly" ? planItem.monthlyPrice : planItem.yearlyPrice);
+              const savings =
+                monthlyPrice !== undefined && yearlyPrice !== undefined
+                  ? Math.round(monthlyPrice * 12 - yearlyPrice)
+                  : monthlyPrice === undefined && yearlyPrice === undefined
+                    ? Math.round(planItem.monthlyPrice * 12 - planItem.yearlyPrice)
+                    : null;
               const quota = catalogMeta?.[tierKey];
               const quotaLine = quota && quota.messageLimit > 0
                 ? `${quota.messageLimit} messages, refreshes every ${quota.refreshHours} ${quota.refreshHours === 1 ? "hour" : "hours"}`
@@ -456,9 +524,9 @@ export default function PaywallScreen() {
                           {billingCycle === "monthly" ? "/month" : "/year"}
                         </Text>
                       </Text>
-                      {billingCycle === "yearly" && (
+                      {billingCycle === "yearly" && savings !== null && savings > 0 && (
                         <Text style={[styles.savingText, savingTextColor]}>
-                          Save ₹{planItem.yearlySaving} vs monthly
+                          Save ₹{savings} vs monthly
                         </Text>
                       )}
                     </View>
@@ -625,6 +693,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 22,
   },
+  developerHeadline: { marginTop: 12 },
 
   toggleContainer: {
     flexDirection: "row",

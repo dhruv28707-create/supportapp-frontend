@@ -13,7 +13,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
-import { TIER_UNLOCKS, PlanKey, isStrangerPersonality, VALID_RELIGIONS } from "../constants";
+import {
+  TIER_UNLOCKS,
+  PlanKey,
+  isStrangerPersonality,
+  VALID_PERSONALITIES,
+  VALID_RELIGIONS,
+} from "../constants";
 import TrialBanner from "../components/TrialBanner";
 import { colors } from "../theme";
 
@@ -170,13 +176,16 @@ const religions = [
 
 export default function LobbyScreen() {
   const navigation = useNavigation<LobbyNavProp>();
-  const { plan } = useToken();
+  const { plan, isDeveloper } = useToken();
   const [selected, setSelected] = useState("Father");
   const [showReligionModal, setShowReligionModal] = useState(false);
   const [selectedReligion, setSelectedReligion] = useState("spiritual");
 
   const planKey: PlanKey = (plan === 'pro' || plan === 'ultimate') ? plan : 'free';
-  const unlockedPersonalities = TIER_UNLOCKS[planKey] ?? TIER_UNLOCKS.free;
+  // Developer accounts get every persona regardless of the paid tier.
+  const unlockedPersonalities: readonly string[] = isDeveloper
+    ? VALID_PERSONALITIES
+    : TIER_UNLOCKS[planKey] ?? TIER_UNLOCKS.free;
 
   useEffect(() => {
     if (!isStrangerPersonality(selected) && !unlockedPersonalities.includes(selected)) {

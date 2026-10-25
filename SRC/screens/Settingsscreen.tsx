@@ -15,6 +15,7 @@ import auth from "@react-native-firebase/auth";
 import firestore from "@react-native-firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useToken } from "../context/TokenContext";
+import DeveloperBadge from "../components/DeveloperBadge";
 import { PLAN_COLORS, PLANS, PlanKey, APP_VERSION } from "../constants";
 import { useCountdown, formatRefreshIn } from "../hooks/useCountdown";
 import { ApiError } from "../api/client";
@@ -30,14 +31,14 @@ type SettingsNavProp = NativeStackNavigationProp<RootStackParamList>;
 export default function SettingsScreen() {
   const navigation = useNavigation<SettingsNavProp>();
   const route = useRoute<any>();
-  const { plan, messagesRemaining, nextRefreshAt, expiresAt, isTrial, trialEndsAt, refreshPlan, showRefillTimer, messagesUsed, messagesTotal, quotaPercent } = useToken();
+  const { plan, messagesRemaining, nextRefreshAt, expiresAt, isTrial, trialEndsAt, refreshPlan, showRefillTimer, messagesUsed, messagesTotal, quotaPercent, isDeveloper } = useToken();
   const [userProfile, setUserProfile] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
   const currentUser = auth().currentUser;
   const isLoggedIn = Boolean(currentUser);
 
   const secondsLeft = useCountdown(showRefillTimer ? nextRefreshAt : null);
-  const showUsageBar = quotaPercent >= 0.75 && messagesTotal > 0;
+  const showUsageBar = !isDeveloper && quotaPercent >= 0.75 && messagesTotal > 0;
   const forwardedTab = useRef<string | null>(null);
 
   useFocusEffect(
@@ -159,6 +160,19 @@ export default function SettingsScreen() {
                       //    Never call currentUser.delete() and never delete
                       //    Firestore docs client-side (rules deny it).
                       let result = await requestAccountDeletion();
+
+                      // Developer accounts cannot be deleted from the app; the
+                      // server must revoke developer status first.
+                      if (
+                        result.status === 403 &&
+                        result.body?.code === 'developer_account'
+                      ) {
+                        Alert.alert(
+                          'Developer account',
+                          'Developer status must be revoked server-side before this account can be deleted. Please contact the backend administrator.',
+                        );
+                        return;
+                      }
 
                       // 4a. Active subscription → force-cancel, then retry once.
                       if (result.status === 409 && result.body?.code === 'active_subscription') {
@@ -296,6 +310,11 @@ export default function SettingsScreen() {
           <View style={styles.profileInfoWrap}>
             <Text style={styles.profileName}>{fullName}</Text>
             <Text style={styles.profileEmail}>{email}</Text>
+            {isDeveloper && (
+              <View style={styles.profileBadgeWrap}>
+                <DeveloperBadge compact />
+              </View>
+            )}
           </View>
         </View>
         )}
@@ -312,34 +331,39 @@ export default function SettingsScreen() {
               onPress={() => navigation.navigate("Usage")}
               activeOpacity={0.85}
             >
-              <Text style={[styles.planName, { color: planStyle.text }]}>
-                {planInfo.name} Plan
-              </Text>
+              <View style={styles.planTitleRow}>
+                <Text style={[styles.planName, { color: planStyle.text }]}>
+                  {planInfo.name} Plan
+                </Text>
+                {isDeveloper && <DeveloperBadge compact />}
+              </View>
               <Text style={styles.planSub}>
-                {showRefillTimer && nextRefreshAt
-                  ? `${messagesRemaining} ${messagesRemaining === 1 ? "message" : "messages"} left · refills in ${formatRefreshIn(secondsLeft)}`
-                  : messagesTotal > 0
-                    ? `${messagesUsed}/${messagesTotal} used · ${messagesRemaining} left`
-                    : `${messagesRemaining} ${messagesRemaining === 1 ? "message" : "messages"} left`}
+                {isDeveloper
+                  ? "Unlimited (Developer)"
+                  : showRefillTimer && nextRefreshAt
+                    ? `${messagesRemaining} ${messagesRemaining === 1 ? "message" : "messages"} left · refills in ${formatRefreshIn(secondsLeft)}`
+                    : messagesTotal > 0
+                      ? `${messagesUsed}/${messagesTotal} used · ${messagesRemaining} left`
+                      : `${messagesRemaining} ${messagesRemaining === 1 ? "message" : "messages"} left`}
               </Text>
               {showUsageBar && (
                 <View style={styles.usageBarTrack}>
                   <View style={[styles.usageBarFill, { width: `${Math.round(quotaPercent * 100)}%` }]} />
                 </View>
               )}
-              {expiresAt && planKey !== 'free' && !isTrial && (
+              {!isDeveloper && expiresAt && planKey !== 'free' && !isTrial && (
                 <Text style={styles.planExpires}>
                   Renews on {new Date(expiresAt).toLocaleDateString()}
                 </Text>
               )}
-              {isTrial && trialEndsAt && (
+              {!isDeveloper && isTrial && trialEndsAt && (
                 <Text style={styles.planExpires}>
                   Ultimate trial ends on {new Date(trialEndsAt).toLocaleDateString()}
                 </Text>
               )}
               <Text style={styles.viewUsage}>View usage →</Text>
             </TouchableOpacity>
-            {planKey === 'free' && (
+            {!isDeveloper && planKey === 'free' && (
               <TouchableOpacity
                 style={styles.upgradeBtn}
                 onPress={() => navigation.navigate("Paywall")}
@@ -350,6 +374,24 @@ export default function SettingsScreen() {
             )}
           </View>
         </View>
+          </>
+        )}
+
+        {isDeveloper && (
+          <>
+            <View style={styles.sectionLabel}>
+              <Text style={styles.sectionLabelText}>DEVELOPER</Text>
+            </View>
+            <View style={styles.menuCard}>
+              <TouchableOpacity
+                style={styles.menuRow}
+                onPress={() => navigation.navigate("Developer")}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.menuLabel}>Developer dashboard</Text>
+                <Text style={styles.menuArrow}>›</Text>
+              </TouchableOpacity>
+            </View>
           </>
         )}
 
@@ -445,6 +487,7 @@ const styles = StyleSheet.create({
   profileInfoWrap: { flex: 1 },
   profileName: { fontSize: 18, fontWeight: "700", color: colors.text },
   profileEmail: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  profileBadgeWrap: { marginTop: 6 },
   sectionLabel: { marginBottom: 8, marginTop: 4 },
   sectionLabelText: { fontSize: 11, fontWeight: "700", color: colors.textMuted, letterSpacing: 1 },
 
@@ -454,6 +497,7 @@ const styles = StyleSheet.create({
   },
   planRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   planInfoWrap: { flex: 1 },
+  planTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   planName: { fontSize: 16, fontWeight: "700" },
   planSub: { fontSize: 12, color: colors.textSubtle, marginTop: 2 },
   usageBarTrack: {

@@ -1,9 +1,12 @@
-import { RAZORPAY_KEY_ID as RAZORPAY_KEY_ID_SECRET, GOOGLE_WEB_CLIENT_ID as GOOGLE_WEB_CLIENT_ID_SECRET } from './secrets';
+import {
+  GOOGLE_WEB_CLIENT_ID as GOOGLE_WEB_CLIENT_ID_CONFIG,
+  GOOGLE_IOS_CLIENT_ID as GOOGLE_IOS_CLIENT_ID_CONFIG,
+} from './secrets';
 
 export const BACKEND_URL = 'https://supportapp-backend.vercel.app';
 
-export const RAZORPAY_KEY_ID = RAZORPAY_KEY_ID_SECRET;
-export const GOOGLE_WEB_CLIENT_ID = GOOGLE_WEB_CLIENT_ID_SECRET;
+export const GOOGLE_WEB_CLIENT_ID = GOOGLE_WEB_CLIENT_ID_CONFIG;
+export const GOOGLE_IOS_CLIENT_ID = GOOGLE_IOS_CLIENT_ID_CONFIG;
 
 export const SUPPORT_EMAIL = 'emotionalsupapp1912@gmail.com';
 

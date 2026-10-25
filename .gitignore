@@ -69,7 +69,6 @@ yarn-error.log
 
 # Secrets
 # Local-only keys — never commit real values
-**/secrets.ts
 .env
 .env.*
 !.env.example

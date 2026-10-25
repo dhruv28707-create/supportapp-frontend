@@ -432,7 +432,7 @@ export default function ChatScreen() {
   const themeKey = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
   const theme = PERSONALITY_THEME[themeKey] ?? DEFAULT_THEME;
 
-  const { refreshPlan } = useToken();
+  const { refreshPlan, isDeveloper } = useToken();
 
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -635,7 +635,8 @@ export default function ChatScreen() {
 
     if (isCrisisMessage(currentInput)) showCrisisSupport();
 
-    if (limitSignal.hit) {
+    // Developer accounts are never quota-gated by the backend.
+    if (!isDeveloper && limitSignal.hit) {
       await refreshPlan();
       return;
     }
@@ -715,7 +716,7 @@ export default function ChatScreen() {
         body: JSON.stringify(requestBody),
       });
 
-      if (response.status === 429 || response.status === 402) {
+      if (!isDeveloper && (response.status === 429 || response.status === 402)) {
         let quotaData: any = {};
         try {
           quotaData = await response.json();
@@ -740,7 +741,13 @@ export default function ChatScreen() {
       if (response.status === 403) {
         const errData: any = await response.json().catch(() => ({}));
         if (errData.code === 'persona_locked') {
-          Alert.alert('Upgrade required', errData.error || 'This personality requires a paid plan.');
+          // Developers always have every persona — never show an upgrade prompt.
+          Alert.alert(
+            isDeveloper ? 'Persona unavailable' : 'Upgrade required',
+            errData.error || (isDeveloper
+              ? 'This persona is currently unavailable.'
+              : 'This personality requires a paid plan.'),
+          );
           setLoading(false);
           return;
         }
@@ -824,8 +831,9 @@ export default function ChatScreen() {
 
   const sendButtonStyle = { backgroundColor: loading ? colors.borderStrong : theme.sendBtn };
 
-  const quotaExhausted = limitSignal.hit && limitSignal.showRefillTimer;
-  const rateLimited = limitSignal.hit && !limitSignal.showRefillTimer;
+  // Developer accounts have unlimited quota — never render quota/refill UI.
+  const quotaExhausted = !isDeveloper && limitSignal.hit && limitSignal.showRefillTimer;
+  const rateLimited = !isDeveloper && limitSignal.hit && !limitSignal.showRefillTimer;
   const secondsLeft = useCountdown(limitSignal.refreshAt);
   const isOnline = useOnlineStatus();
 

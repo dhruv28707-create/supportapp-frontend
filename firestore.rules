@@ -10,18 +10,10 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
-    // Admin access: prefer the `admin` custom claim (set via backend
-    // `auth.setCustomUserClaims(uid, { admin: true })`). The legacy owner
-    // emails below are kept for backward compatibility until the claims
-    // migration is complete — then remove the email list entirely.
-    function isGodAccount() {
-      return signedIn() && (
-        request.auth.token.admin == true
-        || request.auth.token.email in [
-          'piyush28707@gmail.com',
-          'prachibhatt1972007@gmail.com'
-        ]
-      );
+    // Admin access is granted only through the `admin` custom claim, which is
+    // set server-side via `auth.setCustomUserClaims(uid, { admin: true })`.
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
     }
 
     function isValidUserTier() {
@@ -59,9 +51,9 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      allow read: if isOwner(uid) || isGodAccount();
+      allow read: if isOwner(uid) || isAdmin();
 
-      allow create: if isGodAccount()
+      allow create: if isAdmin()
         || (
           isOwner(uid)
           && isValidUserTier()
@@ -70,7 +62,7 @@ service cloud.firestore {
           && request.resource.data.tier == 'free'
         );
 
-      allow update: if isGodAccount()
+      allow update: if isAdmin()
         || (
           isOwner(uid)
           && isValidUserTier()
@@ -79,32 +71,32 @@ service cloud.firestore {
           && normalUserKeepsProtectedFields()
         );
 
-      allow delete: if isGodAccount();
+      allow delete: if isAdmin();
 
       match /chatHistory/{chatId}/messages/{messageId} {
-        allow read, write: if isOwner(uid) || isGodAccount();
+        allow read, write: if isOwner(uid) || isAdmin();
       }
 
       match /conversations/{conversationId} {
-        allow read, write: if isOwner(uid) || isGodAccount();
+        allow read, write: if isOwner(uid) || isAdmin();
 
         match /messages/{messageId} {
-          allow read, write: if isOwner(uid) || isGodAccount();
+          allow read, write: if isOwner(uid) || isAdmin();
         }
       }
     }
 
     match /sessions/{uid} {
-      allow read, write: if isOwner(uid) || isGodAccount();
+      allow read, write: if isOwner(uid) || isAdmin();
     }
 
     match /payments/{orderId} {
-      allow read: if isGodAccount() || (signedIn() && resource != null && resource.data.uid == request.auth.uid);
-      allow write: if isGodAccount();
+      allow read: if isAdmin() || (signedIn() && resource != null && resource.data.uid == request.auth.uid);
+      allow write: if isAdmin();
     }
 
     match /{document=**} {
-      allow read, write: if isGodAccount();
+      allow read, write: if isAdmin();
     }
   }
 }

@@ -9,6 +9,14 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
 
+def requiredKeystoreProperties = ["storeFile", "storePassword", "keyAlias", "keyPassword"]
+def releaseKeystoreFile = (keystorePropertiesFile.exists() && keystoreProperties["storeFile"])
+    ? file(keystoreProperties["storeFile"])
+    : null
+def releaseSigningConfigured = releaseKeystoreFile != null
+    && releaseKeystoreFile.exists()
+    && requiredKeystoreProperties.every { keystoreProperties[it] }
+
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
@@ -103,8 +111,8 @@ android {
             keyPassword 'android'
         }
         release {
-            if (keystorePropertiesFile.exists()) {
-                storeFile file(keystoreProperties['storeFile'])
+            if (releaseSigningConfigured) {
+                storeFile releaseKeystoreFile
                 storePassword keystoreProperties['storePassword']
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
@@ -116,11 +124,24 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // Signs with the release keystore when android/keystore.properties exists,
-            // otherwise falls back to the debug key.
-            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            // Never fall back to the debug key: an unsigned/debug-signed artifact
+            // must not be publishable as a release build.
+            signingConfig releaseSigningConfigured ? signingConfigs.release : null
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name in ["assembleRelease", "bundleRelease", "packageRelease"]) {
+        task.doFirst {
+            if (!releaseSigningConfigured) {
+                throw new GradleException(
+                    "Release signing is not configured. Create android/keystore.properties with " +
+                    "storeFile, storePassword, keyAlias and keyPassword, and make sure storeFile exists."
+                )
+            }
         }
     }
 }

@@ -14,6 +14,7 @@ import ConversationHistoryScreen from "../screens/ConversationHistoryScreen";
 import SettingsScreen from "../screens/Settingsscreen";
 import PolicyScreen from "../screens/Policyscreen";
 import UsageScreen from "../screens/UsageScreen";
+import DeveloperScreen from "../screens/DeveloperScreen";
 
 export type RootStackParamList = {
   Auth: undefined;
@@ -26,6 +27,7 @@ export type RootStackParamList = {
   ConversationHistory: { filterPersonality? : string} | undefined;
   Settings: { initialPolicyTab?: string } | undefined;
   Usage: undefined;
+  Developer: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -73,6 +75,7 @@ export default function AppNavigator() {
           <Stack.Screen name="ConversationHistory" component={ConversationHistoryScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="Usage" component={UsageScreen} />
+          <Stack.Screen name="Developer" component={DeveloperScreen} />
           <Stack.Screen name="Policy" component={PolicyScreen} />
         </>
       ) : (
