@@ -55,6 +55,13 @@ const LEVEL_STYLE: Record<
   debug: { bg: '#EDE9FE', border: '#A78BFA', text: '#4C1D95', label: 'DEBUG' },
 };
 
+const EVENT_PRESETS: string[] = [
+  'vercel_log',
+  'chat_reply',
+  'chat_upstream_error',
+  'payment_verified',
+];
+
 const USER_DETAIL_SECTIONS: { label: string; keys: string[] }[] = [
   { keys: ['auth', 'authRecord', 'authUser', 'record'], label: 'Auth record' },
   { keys: ['profile', 'userProfile', 'user'], label: 'Profile' },
@@ -1088,6 +1095,27 @@ export default function DeveloperScreen() {
         </View>
 
         <Text style={styles.blockLabel}>Event</Text>
+        <View style={styles.chipWrap}>
+          {EVENT_PRESETS.map((preset) => {
+            const active = logsEvent === preset;
+            return (
+              <TouchableOpacity
+                key={preset}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => applyLogEventShortcut(preset)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {preset}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        <Text style={styles.filterHint}>
+          Pick vercel_log to isolate drained raw Vercel lines from structured events,
+          or type any event name.
+        </Text>
         <View style={styles.filterRow}>
           <TextInput
             style={styles.filterInput}
@@ -1161,9 +1189,26 @@ export default function DeveloperScreen() {
             const status = pickField(log, ['status', 'statusCode']);
             const durationMs = pickField(log, ['durationMs', 'duration_ms', 'duration']);
             const detail = pickField(log, ['detail', 'data', 'meta', 'metadata']);
+            // Drained vercel_log batches arrive delayed and with uid: null — the
+            // original Vercel timestamp is the accurate time, not the ingest ts.
+            const vercelTs = pickField(detail, ['vercelTs', 'vercel_ts', 'vercelTimestamp']);
             const expanded = expandedLogId === id;
             const uidShort =
               uid === undefined ? null : String(uid).length > 10 ? `${String(uid).slice(0, 10)}…` : String(uid);
+            let vercelText: string | null = null;
+            if (vercelTs !== undefined) {
+              const vDate = new Date(String(vercelTs));
+              vercelText = !Number.isNaN(vDate.getTime())
+                ? vDate.toLocaleString(undefined, {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })
+                : displayValue(vercelTs);
+            }
 
             return (
               <View key={id} style={styles.docCard}>
@@ -1195,6 +1240,8 @@ export default function DeveloperScreen() {
                     <Text style={styles.logMetaText} selectable>
                       uid {uidShort}
                     </Text>
+                  ) : log?.uid === null ? (
+                    <Text style={styles.logMetaText}>uid —</Text>
                   ) : null}
                   {route !== undefined ? (
                     <Text style={styles.logMetaText} numberOfLines={1}>
@@ -1208,6 +1255,11 @@ export default function DeveloperScreen() {
                     <Text style={styles.logMetaText}>{displayValue(durationMs)} ms</Text>
                   ) : null}
                 </View>
+                {vercelText ? (
+                  <Text style={styles.logVercelTs} selectable>
+                    vercel {vercelText}
+                  </Text>
+                ) : null}
                 {detail !== undefined && detail !== null ? (
                   <>
                     <TouchableOpacity
@@ -1651,6 +1703,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: colors.primary,
+  },
+  logVercelTs: {
+    marginTop: 6,
+    fontSize: 10,
+    color: colors.textMuted,
+    fontFamily: MONO_FONT,
+    fontStyle: 'italic',
+  },
+  filterHint: {
+    fontSize: 10,
+    color: colors.textFaint,
+    marginTop: -4,
+    marginBottom: 8,
+    lineHeight: 14,
   },
   docId: {
     fontSize: 11,
