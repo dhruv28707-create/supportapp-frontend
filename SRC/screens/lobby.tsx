@@ -15,7 +15,6 @@ import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
 import {
   TIER_UNLOCKS,
-  PlanKey,
   isStrangerPersonality,
   VALID_PERSONALITIES,
   VALID_RELIGIONS,
@@ -176,16 +175,19 @@ const religions = [
 
 export default function LobbyScreen() {
   const navigation = useNavigation<LobbyNavProp>();
-  const { plan, isDeveloper } = useToken();
+  const { plan, isDeveloper, unlimited } = useToken();
   const [selected, setSelected] = useState("Father");
   const [showReligionModal, setShowReligionModal] = useState(false);
   const [selectedReligion, setSelectedReligion] = useState("spiritual");
 
-  const planKey: PlanKey = (plan === 'pro' || plan === 'ultimate') ? plan : 'free';
-  // Developer accounts get every persona regardless of the paid tier.
-  const unlockedPersonalities: readonly string[] = isDeveloper
-    ? VALID_PERSONALITIES
-    : TIER_UNLOCKS[planKey] ?? TIER_UNLOCKS.free;
+  // All 13 personas unlock whenever the server plan is paid, the account is a
+  // server-granted developer, or the backend returns unlimited quota.
+  // Locks are never decided from purchase history or cached client flags.
+  const serverPlanIsPaid = typeof plan === 'string' && plan !== '' && plan !== 'free';
+  const unlockedPersonalities: readonly string[] =
+    serverPlanIsPaid || isDeveloper || unlimited
+      ? VALID_PERSONALITIES
+      : TIER_UNLOCKS.free;
 
   useEffect(() => {
     if (!isStrangerPersonality(selected) && !unlockedPersonalities.includes(selected)) {

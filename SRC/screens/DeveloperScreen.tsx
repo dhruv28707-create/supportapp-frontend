@@ -22,6 +22,7 @@ import {
   DeveloperCollection,
   fetchDeveloperCollectionDocs,
   fetchDeveloperCollections,
+  fetchDeveloperLogs,
   fetchDeveloperOverview,
   fetchDeveloperProviderUsage,
   fetchDeveloperUser,
@@ -30,7 +31,9 @@ import {
 
 type DeveloperNavProp = NativeStackNavigationProp<RootStackParamList>;
 
-type TabKey = 'overview' | 'users' | 'database' | 'providers';
+type TabKey = 'overview' | 'users' | 'database' | 'providers' | 'logs';
+
+type LogLevelFilter = 'all' | 'info' | 'warn' | 'error';
 
 const MONO_FONT = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
@@ -39,7 +42,18 @@ const TABS: { id: TabKey; label: string }[] = [
   { id: 'users', label: 'Users' },
   { id: 'database', label: 'Database' },
   { id: 'providers', label: 'Providers' },
+  { id: 'logs', label: 'Logs' },
 ];
+
+const LEVEL_STYLE: Record<
+  string,
+  { bg: string; border: string; text: string; label: string }
+> = {
+  info: { bg: '#F1F3F5', border: '#CED4DA', text: '#495057', label: 'INFO' },
+  warn: { bg: '#FEF3C7', border: '#F59E0B', text: '#92400E', label: 'WARN' },
+  error: { bg: '#FEE2E2', border: '#EF4444', text: '#7F1D1D', label: 'ERROR' },
+  debug: { bg: '#EDE9FE', border: '#A78BFA', text: '#4C1D95', label: 'DEBUG' },
+};
 
 const USER_DETAIL_SECTIONS: { label: string; keys: string[] }[] = [
   { keys: ['auth', 'authRecord', 'authUser', 'record'], label: 'Auth record' },
@@ -202,6 +216,17 @@ export default function DeveloperScreen() {
   const [providerLoading, setProviderLoading] = useState(false);
   const [providerError, setProviderError] = useState<string | null>(null);
 
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsCursor, setLogsCursor] = useState<number | null>(null);
+  const [logsCount, setLogsCount] = useState<number | null>(null);
+  const [logsLevel, setLogsLevel] = useState<LogLevelFilter>('all');
+  const [logsEventInput, setLogsEventInput] = useState('');
+  const [logsEvent, setLogsEvent] = useState('');
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsLoaded, setLogsLoaded] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+
   const handleDeveloperOnly = useCallback(async () => {
     if (developerOnlyHandled.current) return;
     developerOnlyHandled.current = true;
@@ -347,6 +372,38 @@ export default function DeveloperScreen() {
     }
   }, [describeError]);
 
+  const loadLogs = useCallback(
+    async (
+      reset: boolean,
+      level: LogLevelFilter,
+      event: string,
+      cursor: number | null,
+    ) => {
+      setLogsLoading(true);
+      setLogsError(null);
+      try {
+        const page = await fetchDeveloperLogs({
+          limit: 50,
+          level: level === 'all' ? null : (level as 'info' | 'warn' | 'error'),
+          event: event || null,
+          cursor: reset ? null : cursor,
+        });
+        setLogs((prev) => (reset ? page.items : [...prev, ...page.items]));
+        const numericCursor = page.nextPageToken === null ? null : Number(page.nextPageToken);
+        setLogsCursor(
+          numericCursor === null || Number.isNaN(numericCursor) ? null : numericCursor,
+        );
+        if (reset && page.total !== null) setLogsCount(page.total);
+        setLogsLoaded(true);
+      } catch (e: any) {
+        setLogsError(describeError(e));
+      } finally {
+        setLogsLoading(false);
+      }
+    },
+    [describeError],
+  );
+
   const openCollection = useCallback(
     (name: string) => {
       setSelectedCollection(name);
@@ -377,18 +434,47 @@ export default function DeveloperScreen() {
       if (next === 'users' && !usersLoaded && !usersLoading) loadUsers(true);
       if (next === 'database' && !collectionsLoaded && !collectionsLoading) loadCollections();
       if (next === 'providers' && providerUsage === null && !providerLoading) loadProviderUsage();
+      if (next === 'logs' && !logsLoaded && !logsLoading) loadLogs(true, logsLevel, logsEvent, null);
     },
     [
       collectionsLoaded,
       collectionsLoading,
       loadCollections,
+      loadLogs,
       loadProviderUsage,
       loadUsers,
+      logsEvent,
+      logsLevel,
+      logsLoaded,
+      logsLoading,
       providerLoading,
       providerUsage,
       usersLoaded,
       usersLoading,
     ],
+  );
+
+  const applyLogFilters = useCallback(
+    (nextLevel: LogLevelFilter, nextEvent: string) => {
+      setLogsLevel(nextLevel);
+      setLogsEvent(nextEvent);
+      setLogs([]);
+      setLogsCursor(null);
+      setLogsLoaded(false);
+      loadLogs(true, nextLevel, nextEvent, null);
+    },
+    [loadLogs],
+  );
+
+  // Quick filter shortcuts from the log row itself (e.g. tap the event chip).
+  const applyLogEventShortcut = useCallback(
+    (event: string) => {
+      if (!event) return;
+      const next = logsEvent === event ? '' : event;
+      setLogsEventInput(next);
+      applyLogFilters('all', next);
+    },
+    [applyLogFilters, logsEvent],
   );
 
   useEffect(() => {
@@ -406,6 +492,7 @@ export default function DeveloperScreen() {
         await loadCollections();
         if (selectedCollection) await loadDocs(selectedCollection, true, appliedUid, null);
       } else if (tab === 'providers') await loadProviderUsage();
+      else if (tab === 'logs') await loadLogs(true, logsLevel, logsEvent, null);
     } finally {
       setRefreshing(false);
     }
@@ -413,9 +500,12 @@ export default function DeveloperScreen() {
     appliedUid,
     loadCollections,
     loadDocs,
+    loadLogs,
     loadOverview,
     loadProviderUsage,
     loadUsers,
+    logsEvent,
+    logsLevel,
     selectedCollection,
     tab,
   ]);
@@ -484,9 +574,43 @@ export default function DeveloperScreen() {
       root.developer ?? root.admin ?? root.currentDeveloper ?? root;
     const uid = pickField(identity, ['uid', 'developerUid', 'adminUid', 'id']);
     const email = pickField(identity, ['email', 'developerEmail', 'adminEmail']);
-    const entries =
+
+    const env = pickField(root, ['environment', 'env']);
+    const isProd = String(env).toLowerCase().includes('prod');
+
+    const rawCollections = (() => {
+      const value = root?.collections;
+      if (Array.isArray(value)) return value;
+      return [];
+    })();
+    const collections = rawCollections
+      .map((item: any) => {
+        if (typeof item === 'string') return { name: item, count: undefined };
+        if (!item || typeof item !== 'object') return null;
+        const name = item.name ?? item.id ?? item.collection ?? item.path;
+        if (typeof name !== 'string' || !name) return null;
+        const count = typeof item.count === 'number' ? item.count : undefined;
+        return { name, count };
+      })
+      .filter(Boolean) as { name: string; count?: number }[];
+
+    const providersRoot = pickField(root, ['providers']) ?? {};
+    const providerNames = ['groq', 'openrouter', 'razorpay', 'gemini'].filter(
+      (key) => providersRoot?.[key] !== undefined,
+    );
+
+    const knownKeys = new Set([
+      'environment',
+      'env',
+      'collections',
+      'providers',
+      'developer',
+      'admin',
+      'currentDeveloper',
+    ]);
+    const extraEntries =
       root && typeof root === 'object' && !Array.isArray(root)
-        ? Object.entries(root)
+        ? Object.entries(root).filter(([key]) => !knownKeys.has(key))
         : [];
 
     return (
@@ -501,14 +625,80 @@ export default function DeveloperScreen() {
             </Text>
           ) : null}
         </View>
-        {overviewError ? <ErrorBox message={overviewError} onRetry={loadOverview} /> : null}
-        {entries.length > 0 ? (
-          entries.map(([key, value]) => (
+
+        {env !== undefined ? (
+          <Text style={[styles.envChip, isProd ? styles.envChipProd : styles.envChipDev]}>
+            {String(env).toUpperCase()}
+          </Text>
+        ) : null}
+        {overviewError ? (
+          <ErrorBox message={overviewError} onRetry={loadOverview} />
+        ) : null}
+
+        {collections.length > 0 ? (
+          <>
+            <Text style={styles.blockLabel}>Collections</Text>
+            <View style={styles.collGrid}>
+              {collections.map((item: { name: string; count?: number }) => (
+                <View key={item.name} style={styles.collCard}>
+                  <Text style={styles.collCount}>
+                    {typeof item.count === 'number' ? String(item.count) : '—'}
+                  </Text>
+                  <Text style={styles.collName} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </>
+        ) : null}
+
+        {providerNames.length > 0 ? (
+          <>
+            <Text style={styles.blockLabel}>Providers</Text>
+            <View style={styles.card}>
+              {providerNames.map((key) => {
+                const value = providersRoot?.[key] ?? {};
+                const configured = value.configured ?? value.isConfigured ?? value.enabled;
+                const model = pickField(value, ['model', 'defaultModel', 'default_model']);
+                const mode = pickField(value, ['mode', 'environment', 'liveMode']);
+                return (
+                  <View key={key} style={styles.kvRow}>
+                    <Text style={styles.kvLabel}>{humanize(key)}</Text>
+                    <View style={styles.providerStatus}>
+                      {typeof configured === 'boolean' ? (
+                        <Text
+                          style={[
+                            styles.providerKeyPill,
+                            configured ? styles.providerKeyOn : styles.providerKeyOff,
+                          ]}
+                        >
+                          {configured ? 'configured' : 'missing'}
+                        </Text>
+                      ) : null}
+                      {mode !== undefined ? (
+                        <Text style={styles.providerKeyPill}>{String(mode)}</Text>
+                      ) : null}
+                      {model !== undefined ? (
+                        <Text style={styles.providerModel} numberOfLines={1}>
+                          {String(model)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
+
+        {extraEntries.length > 0 ? (
+          extraEntries.map(([key, value]) => (
             <SectionCard key={key} title={humanize(key)} value={value} />
           ))
-        ) : (
+        ) : collections.length === 0 && providerNames.length === 0 ? (
           <SectionCard title="Server overview" value={root} />
-        )}
+        ) : null}
       </>
     );
   };
@@ -799,9 +989,47 @@ export default function DeveloperScreen() {
               .filter((row) => row.value !== undefined);
             const isErrorRow = (label: string) => label === 'Errors';
 
+            // Numeric usage vs limit bar (currently only meaningful for OpenRouter).
+            const usageNum = Number(pickField(value, ['usage', 'used', 'usageUsd', 'totalUsage', 'total_usage']));
+            const limitNum = Number(pickField(value, ['limit', 'usageLimit', 'limitUsd', 'totalLimit']));
+            const remainingNum = Number(
+              pickField(value, ['remaining', 'remainingCredits', 'remainingUsd', 'remaining_credits']),
+            );
+            const hasBar =
+              key === 'openrouter' &&
+              Number.isFinite(usageNum) &&
+              Number.isFinite(limitNum) &&
+              limitNum > 0;
+            const usagePercent = hasBar
+              ? Math.min(1, Math.max(0, usageNum / limitNum))
+              : 0;
+            const usageHigh = usagePercent >= 0.85;
+
             return (
               <View key={key} style={styles.card}>
                 <Text style={styles.cardHeading}>{humanize(key)}</Text>
+                {hasBar ? (
+                  <>
+                    <View style={styles.spendTrack}>
+                      <View
+                        style={[
+                          styles.spendFill,
+                          {
+                            width: `${Math.round(usagePercent * 100)}%`,
+                            backgroundColor: usageHigh ? colors.danger : colors.primary,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.spendLabel} selectable>
+                      ${usageNum.toFixed(2)} of ${limitNum.toFixed(2)}
+                      {Number.isFinite(remainingNum)
+                        ? ` · $${remainingNum.toFixed(2)} remaining`
+                        : ''}{' '}
+                      ({Math.round(usagePercent * 100)}%)
+                    </Text>
+                  </>
+                ) : null}
                 {rows.length > 0 ? (
                   rows.map((row) => (
                     <View key={row.label} style={styles.kvRow}>
@@ -823,6 +1051,198 @@ export default function DeveloperScreen() {
             );
           })
         )}
+      </>
+    );
+  };
+
+  const renderLogs = () => {
+    const levelOptions: { id: LogLevelFilter; label: string }[] = [
+      { id: 'all', label: 'All' },
+      { id: 'info', label: 'Info' },
+      { id: 'warn', label: 'Warn' },
+      { id: 'error', label: 'Error' },
+    ];
+    const hasFilters = logsLevel !== 'all' || logsEvent !== '';
+
+    return (
+      <>
+        <Text style={styles.blockLabel}>Level</Text>
+        <View style={styles.chipWrap}>
+          {levelOptions.map((option) => {
+            const active = logsLevel === option.id;
+            return (
+              <TouchableOpacity
+                key={option.id}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() =>
+                  !active && !logsLoading && applyLogFilters(option.id, logsEvent)
+                }
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <Text style={styles.blockLabel}>Event</Text>
+        <View style={styles.filterRow}>
+          <TextInput
+            style={styles.filterInput}
+            value={logsEventInput}
+            onChangeText={setLogsEventInput}
+            placeholder="e.g. chat_reply"
+            placeholderTextColor={colors.textFaint}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            onSubmitEditing={() => applyLogFilters('all', logsEventInput.trim())}
+          />
+          <TouchableOpacity
+            style={styles.filterBtn}
+            onPress={() => applyLogFilters('all', logsEventInput.trim())}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.filterBtnText}>Apply</Text>
+          </TouchableOpacity>
+          {hasFilters ? (
+            <TouchableOpacity
+              style={styles.clearBtn}
+              onPress={() => {
+                setLogsEventInput('');
+                applyLogFilters('all', '');
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.clearBtnText}>Clear</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {logsCount !== null ? (
+          <Text style={styles.logsCountText}>
+            {logsCount} matching {logsCount === 1 ? 'entry' : 'entries'}
+          </Text>
+        ) : null}
+
+        {logsError ? (
+          <ErrorBox message={logsError} onRetry={() => applyLogFilters(logsLevel, logsEvent)} />
+        ) : null}
+
+        {logsLoading && logs.length === 0 ? (
+          <Loading label="Loading logs..." />
+        ) : logs.length === 0 ? (
+          <Text style={styles.emptyText}>
+            {logsLoaded ? 'No logs yet' : 'Pull to load logs.'}
+          </Text>
+        ) : (
+          logs.map((log, index) => {
+            const id = String(pickField(log, ['id', '_id']) ?? `log-${index}`);
+            const level = String(pickField(log, ['level']) ?? 'info').toLowerCase();
+            const style = LEVEL_STYLE[level] ?? LEVEL_STYLE.info;
+            const ts = pickField(log, ['ts', 'time', 'timestamp', 'createdAt']);
+            let tsText = displayValue(ts);
+            const tsDate = ts !== undefined ? new Date(String(ts)) : null;
+            if (tsDate && !Number.isNaN(tsDate.getTime())) {
+              tsText = tsDate.toLocaleString(undefined, {
+                year: 'numeric',
+                month: 'short',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              });
+            }
+            const event = pickField(log, ['event']);
+            const uid = pickField(log, ['uid', 'userId']);
+            const route = pickField(log, ['route', 'path']);
+            const status = pickField(log, ['status', 'statusCode']);
+            const durationMs = pickField(log, ['durationMs', 'duration_ms', 'duration']);
+            const detail = pickField(log, ['detail', 'data', 'meta', 'metadata']);
+            const expanded = expandedLogId === id;
+            const uidShort =
+              uid === undefined ? null : String(uid).length > 10 ? `${String(uid).slice(0, 10)}…` : String(uid);
+
+            return (
+              <View key={id} style={styles.docCard}>
+                <View style={styles.logHead}>
+                  <View style={[styles.levelChip, { backgroundColor: style.bg, borderColor: style.border }]}>
+                    <Text style={[styles.levelChipText, { color: style.text }]}>{style.label}</Text>
+                  </View>
+                  {typeof event === 'string' && event ? (
+                    <TouchableOpacity
+                      style={styles.logEventBtn}
+                      onPress={() => applyLogEventShortcut(event)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.logEventText} numberOfLines={1}>
+                        {event}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.logEventBtn}>
+                      <Text style={styles.logEventText} numberOfLines={1}>
+                        {displayValue(event)}
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={styles.logTs}>{tsText !== '—' ? tsText : ''}</Text>
+                </View>
+                <View style={styles.logMetaRow}>
+                  {uidShort ? (
+                    <Text style={styles.logMetaText} selectable>
+                      uid {uidShort}
+                    </Text>
+                  ) : null}
+                  {route !== undefined ? (
+                    <Text style={styles.logMetaText} numberOfLines={1}>
+                      {String(route)}
+                    </Text>
+                  ) : null}
+                  {status !== undefined ? (
+                    <Text style={styles.logMetaText}>status {displayValue(status)}</Text>
+                  ) : null}
+                  {durationMs !== undefined ? (
+                    <Text style={styles.logMetaText}>{displayValue(durationMs)} ms</Text>
+                  ) : null}
+                </View>
+                {detail !== undefined && detail !== null ? (
+                  <>
+                    <TouchableOpacity
+                      style={styles.logDetailToggle}
+                      onPress={() => setExpandedLogId(expanded ? null : id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.logDetailToggleText}>
+                        {expanded ? 'Hide detail' : 'Show detail'}
+                      </Text>
+                    </TouchableOpacity>
+                    {expanded ? <JsonView value={detail} /> : null}
+                  </>
+                ) : null}
+              </View>
+            );
+          })
+        )}
+
+        {logsCursor !== null ? (
+          <TouchableOpacity
+            style={[styles.loadMoreBtn, logsLoading && styles.btnDisabled]}
+            onPress={() => loadLogs(false, logsLevel, logsEvent, logsCursor)}
+            disabled={logsLoading}
+            activeOpacity={0.85}
+          >
+            {logsLoading ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <Text style={styles.loadMoreText}>Load more</Text>
+            )}
+          </TouchableOpacity>
+        ) : logsLoaded ? (
+          <Text style={styles.endText}>End of results</Text>
+        ) : null}
       </>
     );
   };
@@ -864,6 +1284,7 @@ export default function DeveloperScreen() {
         {tab === 'users' && renderUsers()}
         {tab === 'database' && renderDatabase()}
         {tab === 'providers' && renderProviders()}
+        {tab === 'logs' && renderLogs()}
         <Text style={styles.footerNote}>Read-only · actions are disabled by design</Text>
       </ScrollView>
     </SafeAreaView>
@@ -960,6 +1381,110 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textMuted,
     marginTop: 4,
+    fontFamily: MONO_FONT,
+  },
+
+  envChip: {
+    alignSelf: 'flex-start',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  envChipProd: {
+    color: '#7F1D1D',
+    backgroundColor: '#FEE2E2',
+    borderColor: '#EF4444',
+  },
+  envChipDev: {
+    color: '#065F46',
+    backgroundColor: '#D1FAE5',
+    borderColor: '#10B981',
+  },
+  collGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  collCard: {
+    backgroundColor: colors.onPrimary,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minWidth: 96,
+    flex: 1,
+    maxWidth: '48%',
+    padding: 12,
+  },
+  collCount: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.primaryDarker,
+  },
+  collName: {
+    fontSize: 11,
+    color: colors.textSubtle,
+    marginTop: 2,
+    fontFamily: MONO_FONT,
+  },
+  providerStatus: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  providerKeyPill: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.textSubtle,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
+  providerKeyOn: {
+    color: '#065F46',
+    backgroundColor: '#D1FAE5',
+    borderColor: '#10B981',
+  },
+  providerKeyOff: {
+    color: colors.danger,
+    backgroundColor: colors.dangerBg,
+    borderColor: colors.dangerBorder,
+  },
+  providerModel: {
+    fontSize: 10,
+    color: colors.textMuted,
+    fontFamily: MONO_FONT,
+    flexShrink: 1,
+  },
+
+  spendTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.border,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  spendFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  spendLabel: {
+    fontSize: 11,
+    color: colors.textSubtle,
+    marginBottom: 8,
     fontFamily: MONO_FONT,
   },
 
@@ -1083,6 +1608,49 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: 14,
     marginBottom: 10,
+  },
+
+  logsCountText: {
+    fontSize: 11,
+    color: colors.textFaint,
+    marginBottom: 8,
+  },
+  logHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  levelChip: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  levelChipText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  logEventBtn: { flex: 1, minWidth: 0 },
+  logEventText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primaryDarker,
+    fontFamily: MONO_FONT,
+  },
+  logTs: { fontSize: 10, color: colors.textMuted, flexShrink: 0 },
+  logMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 8,
+  },
+  logMetaText: {
+    fontSize: 10,
+    color: colors.textSubtle,
+    fontFamily: MONO_FONT,
+  },
+  logDetailToggle: { marginTop: 8, alignSelf: 'flex-start' },
+  logDetailToggleText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.primary,
   },
   docId: {
     fontSize: 11,

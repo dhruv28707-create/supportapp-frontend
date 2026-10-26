@@ -151,3 +151,29 @@ export async function fetchDeveloperCollectionDocs(
 export function fetchDeveloperProviderUsage(): Promise<any> {
   return developerGet<any>('/api/developer/provider-usage');
 }
+
+export interface DeveloperLogsParams {
+  limit?: number;
+  level?: 'info' | 'warn' | 'error' | null;
+  event?: string | null;
+  uid?: string | null;
+  cursor?: string | number | null;
+}
+
+/** GET /api/developer/logs?limit=50&level=&event=&uid=&cursor=<numeric> */
+export async function fetchDeveloperLogs(
+  params: DeveloperLogsParams = {},
+): Promise<PageResult<any> & { total: number | null }> {
+  const { limit = 50, level, event, uid, cursor } = params;
+  const data = await developerGet<any>(
+    `/api/developer/logs${buildQuery({ limit, level, event, uid, cursor })}`,
+  );
+  const items = pickArray(data, ['logs', 'items', 'results', 'data']);
+  const total = typeof data?.count === 'number' ? data.count : null;
+  const nextCursor = data?.nextCursor ?? data?.next_cursor ?? data?.cursor ?? null;
+  return {
+    items,
+    nextPageToken: nextCursor === null || nextCursor === undefined ? null : String(nextCursor),
+    total,
+  };
+}
