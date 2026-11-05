@@ -19,7 +19,7 @@ import firestore from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
 import { useToken } from "../context/TokenContext";
 import { CRISIS_HELPLINES, isStrangerPersonality, VALID_PERSONALITIES, VALID_RELIGIONS } from "../constants";
-import { apiFetch } from "../api/client";
+import { sendChatMessage } from "../api/client";
 import { useCountdown, formatCountdown, useOnlineStatus } from "../hooks/useCountdown";
 import { colors } from "../theme";
 
@@ -362,7 +362,16 @@ const conversationMessagesRef = (uid: string, id: string) =>
 const makeMessageId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 6)}`;
 
+// History budget is server-enforced (Issue 5): <= 16 turns, <= 500 chars per
+// turn, <= 4000 chars total. We send ~6-10 short recent turns and truncate
+// our OWN transcript client-side; the server silently drops anything over.
 const MAX_MESSAGE_LENGTH = 2000;
+const MAX_HISTORY_TURNS = 10;
+const MAX_HISTORY_TURN_CHARS = 500;
+const MAX_HISTORY_TOTAL_CHARS = 4000;
+// ONE in-flight chat request per user, ever (Issue 2). Module-scoped so two
+// mounted ChatScreen instances cannot parallel-send and burn the per-uid
+// 30/5min abuse budget.
 
 const normalizePersonality = (value: unknown): string => {
   if (typeof value === "string" && (VALID_PERSONALITIES as readonly string[]).includes(value)) {
@@ -383,20 +392,29 @@ const normalizeNewlines = (text: string): string =>
 
 const getChatHistory = (messages: Message[]): ChatHistoryMessage[] => {
   const seenIds = new Set<string>();
-
-  return messages
+  const candidate = messages
     .filter((message) => {
       if (!message.isConversationMessage || !message.text.trim() || seenIds.has(message.id)) {
         return false;
       }
       seenIds.add(message.id);
+      // Only user/assistant roles are allowlisted server-side.
       return true;
     })
-    .slice(-16)
+    .slice(-MAX_HISTORY_TURNS)
     .map((message) => ({
       role: message.sender === "user" ? "user" : "assistant",
-      content: message.text,
-    }));
+      content: message.text.trim().slice(0, MAX_HISTORY_TURN_CHARS),
+    })) as ChatHistoryMessage[];
+
+  // Keep only the most recent turns that fit the 4000-char total budget.
+  let total = 0;
+  let start = candidate.length;
+  while (start > 0 && total + candidate[start - 1].content.length <= MAX_HISTORY_TOTAL_CHARS) {
+    total += candidate[start - 1].content.length;
+    start -= 1;
+  }
+  return candidate.slice(start);
 };
 
 const withoutRetriedMessage = (messages: Message[], text: string): Message[] => {
@@ -407,6 +425,42 @@ const withoutRetriedMessage = (messages: Message[], text: string): Message[] => 
     }
   }
   return messages;
+};
+
+// ONE in-flight chat request per user, ever (Issue 2). Module-scoped so two
+// mounted ChatScreen instances cannot parallel-send and burn the per-uid
+// 30/5min abuse budget.
+let chatInFlight: Promise<void> | null = null;
+const isChatInFlight = () => chatInFlight !== null;
+
+const ABUSE_COOLDOWN_MS = 60_000;
+const UPSTREAM_AUTO_RETRY_DELAY_MS = 2_000;
+const UPSTREAM_MANUAL_RETRY_DELAY_MS = 20_000;
+
+type LimitSignal = {
+  hit: boolean;
+  // 'quota' = 429 quota_exhausted (hard cap) — usage counts + upgrade.
+  // 'cooldown' = abuse/IP throttle — generic slow-down with >= 60s backoff.
+  kind: "quota" | "cooldown" | null;
+  refreshAt: number | string | null;
+  showRefillTimer: boolean;
+  messagesUsed: number;
+  messagesTotal: number;
+  /** Server-provided 0-100 percent; null when the payload omits it. */
+  quotaPercent: number | null;
+  /** Error code from the 429 body, e.g. ip_rate_limited. */
+  code: string | null;
+};
+
+const CLEAR_LIMIT_SIGNAL: LimitSignal = {
+  hit: false,
+  kind: null,
+  refreshAt: null,
+  showRefillTimer: false,
+  messagesUsed: 0,
+  messagesTotal: 0,
+  quotaPercent: null,
+  code: null,
 };
 
 export default function ChatScreen() {
@@ -432,27 +486,48 @@ export default function ChatScreen() {
   const themeKey = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
   const theme = PERSONALITY_THEME[themeKey] ?? DEFAULT_THEME;
 
-  const { refreshPlan, isDeveloper } = useToken();
+  const { refreshPlan, isDeveloper, isLimitReached, nextRefreshAt, unlimited } = useToken();
+  // Developer or server-unlimited accounts never see quota/refill UI (§E).
+  const quotaExempt = isDeveloper || unlimited;
 
   const [input, setInput] = useState("");
+  // Inline composer validation (400/length) — never a 503-style banner.
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [conversationId, setConversationId] = useState<string | undefined>(initialConversationId);
 
-  const [limitSignal, setLimitSignal] = useState<{
-    hit: boolean;
-    refreshAt: number | string | null;
-    showRefillTimer: boolean;
-    code?: string;
-  }>({
+  // Mirror of `messages` for async flows (auto-retry) that must not read a
+  // stale render closure.
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
+
+  const [limitSignal, setLimitSignal] = useState<LimitSignal>({
     hit: false,
+    kind: null,
     refreshAt: null,
     showRefillTimer: false,
+    messagesUsed: 0,
+    messagesTotal: 0,
+    quotaPercent: null,
+    code: null,
   });
 
-  const [serviceError, setServiceError] = useState<{ hit: boolean; message?: string } | null>(null);
+  // Hard epoch timestamp until which sending stays blocked after an
+  // abuse-driven 429. 429 never means "retry now" (golden rule 5).
+  const cooldownUntilRef = useRef(0);
+
+  const [serviceError, setServiceError] = useState<{
+    hit: boolean;
+    message?: string;
+    autoRetrying?: boolean;
+    cooldownUntil?: number;
+  } | null>(null);
+
+  // Auto-retry budget for 503 upstream failures: at most ONE per session.
+  const upstreamAutoRetriesRef = useRef(0);
 
   const inputRef = useRef<TextInput>(null);
 
@@ -627,22 +702,39 @@ export default function ChatScreen() {
     );
   };
 
-  const executeSend = async (messageText: string, opts?: { retry?: boolean }) => {
-    if (!messageText.trim() || loading) return;
+  const executeSend = async (messageText: string, opts?: { retry?: boolean; skipReligion?: boolean }) => {
+    if (!messageText.trim()) return;
 
-    const currentInput = messageText.trim().slice(0, MAX_MESSAGE_LENGTH);
-    setServiceError(null);
+    // Serialize: ONE in-flight chat request per user, ever. Parallel sends
+    // only burn the 30/5min abuse budget and stack "quota exhausted" toasts.
+    // Internal retries (opts.retry) run on behalf of the in-flight task
+    // itself, so the guard must not block them.
+    if (chatInFlight && !opts?.retry) {
+      return chatInFlight;
+    }
 
-    if (isCrisisMessage(currentInput)) showCrisisSupport();
-
-    // Developer accounts are never quota-gated by the backend.
-    if (!isDeveloper && limitSignal.hit) {
-      await refreshPlan();
+    // 400-length equivalent: inline composer validation, not an error banner.
+    if (messageText.length > MAX_MESSAGE_LENGTH) {
+      setComposerError(`Message is too long. Please shorten it to 2,000 characters or fewer.`);
       return;
     }
 
+    // Check if this is a crisis message and show crisis support if needed.
+    if (isCrisisMessage(messageText)) {
+      showCrisisSupport();
+      return;
+    }
+
+    const currentInput = messageText.trim();
+
+    // The uid is used ONLY for the client-side Firestore transcript path;
+    // identity on the wire is the Firebase ID token (golden rule 1).
     const uid = auth().currentUser?.uid;
     if (!uid) return;
+
+    // Any fresh attempt invalidates a stale 503 banner — it is either being
+    // retried (manually or auto) or succeeded.
+    setServiceError(null);
 
     const userMessage: Message = {
       id: makeMessageId(),
@@ -650,211 +742,412 @@ export default function ChatScreen() {
       sender: "user",
       isConversationMessage: true,
     };
-    const priorMessages = opts?.retry ? withoutRetriedMessage(messages, currentInput) : messages;
+    const priorMessages = opts?.retry
+      ? withoutRetriedMessage(messagesRef.current, currentInput)
+      : messagesRef.current;
+
     if (!opts?.retry) {
       setMessages((prev) => [...prev, userMessage]);
       setInput("");
     }
+    // On an internal retry the user bubble stays visible — the turn is being
+    // retried, not duplicated, so no message-list edits are made.
     setLoading(true);
 
-    try {
-      let activeConversationId: string | undefined = conversationId;
-      if (!isStranger) {
-        try {
-          activeConversationId = await ensureConversation(uid, currentInput);
-        } catch (e: any) {
-          console.warn('ensureConversation failed — continuing without history:', e?.message);
-        }
-      } else {
-        activeConversationId = undefined;
-      }
-      const storedPersonality = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
-
-      if (!isStranger && activeConversationId && !opts?.retry) {
-        try {
-          await conversationMessagesRef(uid, activeConversationId).doc(userMessage.id).set({
-            text: userMessage.text,
-            sender: userMessage.sender,
-            content: userMessage.text,
-            role: "user",
-            personality: storedPersonality,
-            ...(personality === "Guide" && religionSubType ? { religionSubType } : {}),
-            createdAt: firestore.FieldValue.serverTimestamp(),
-          });
-          await conversationRef(uid, activeConversationId).set(
-            {
-              personality: storedPersonality,
-              updatedAt: firestore.FieldValue.serverTimestamp(),
-              lastMessage: currentInput,
-              messageCount: firestore.FieldValue.increment(1),
-            },
-            { merge: true }
-          );
-        } catch (writeError: any) {
-          console.warn("save user message error:", writeError.message);
-        }
-      }
-
-      const requestBody: {
-        message: string;
-        messages?: ChatHistoryMessage[];
-        personality: string;
-        religionSubType?: string;
-      } = {
-        message: currentInput,
-        personality: isStranger ? "Stranger" : personality,
+    const task = (async () => {
+      // Streaming (§F): tokens render into one placeholder bubble; the `done`
+      // event supplies the final text. Nothing is persisted until completion.
+      let streamedId: string | null = null;
+      let streamedText = "";
+      const dropPartialStream = () => {
+        if (!streamedId) return;
+        const id = streamedId;
+        streamedId = null;
+        setMessages((prev) => prev.filter((m) => m.id !== id));
       };
-      if (!isStranger) {
-        requestBody.messages = getChatHistory(priorMessages);
-      }
-      if (personality === "Guide" && religionSubType) {
-        requestBody.religionSubType = religionSubType;
-      }
+      try {
+        let activeConversationId: string | undefined = conversationId;
+        if (!isStranger) {
+          try {
+            activeConversationId = await ensureConversation(uid, currentInput);
+          } catch (e: any) {
+            console.warn('ensureConversation failed — continuing without history:', e?.message);
+          }
+        } else {
+          activeConversationId = undefined;
+        }
+        const storedPersonality = personality === "Guide" && religionSubType ? `Guide_${religionSubType}` : personality;
 
-      const response = await apiFetch("/api/chat", {
-        method: "POST",
-        body: JSON.stringify(requestBody),
-      });
+        // Stranger entries are never persisted; paid personas honor
+        // storeHistory:false / noHistory:true from the response by dropping
+        // the turn from Firestore as well.
+        const userDocRef = !isStranger && activeConversationId
+          ? conversationMessagesRef(uid, activeConversationId).doc(userMessage.id)
+          : null;
 
-      if (!isDeveloper && (response.status === 429 || response.status === 402)) {
-        let quotaData: any = {};
-        try {
-          quotaData = await response.json();
-        } catch {}
-        setLimitSignal({
-          hit: true,
-          refreshAt: quotaData.nextRefreshAt ?? null,
-          showRefillTimer: quotaData.showRefillTimer ?? response.status === 402,
-          code: quotaData.code,
-        });
-        await refreshPlan();
-        setLoading(false);
-        return;
-      }
+        const requestBody: {
+          message: string;
+          messages?: ChatHistoryMessage[];
+          personality: string;
+          religionSubType?: string;
+        } = {
+          message: currentInput,
+          personality: isStranger ? "Stranger" : personality,
+        };
+        // Stranger persona = no history, no persistence: omit messages
+        // entirely (Issue 5).
+        if (!isStranger) {
+          requestBody.messages = getChatHistory(priorMessages);
+        }
+        if (personality === "Guide" && religionSubType && !opts?.skipReligion) {
+          requestBody.religionSubType = religionSubType;
+        }
 
-      if (response.status === 503) {
-        setServiceError({ hit: true, message: currentInput });
-        setLoading(false);
-        return;
-      }
+        if (userDocRef) {
+          try {
+            await userDocRef.set({
+              text: userMessage.text,
+              sender: userMessage.sender,
+              content: userMessage.text,
+              role: "user",
+              personality: storedPersonality,
+              ...(personality === "Guide" && religionSubType ? { religionSubType } : {}),
+              createdAt: firestore.FieldValue.serverTimestamp(),
+            });
+            await conversationRef(uid, activeConversationId!).set(
+              {
+                personality: storedPersonality,
+                updatedAt: firestore.FieldValue.serverTimestamp(),
+                lastMessage: currentInput,
+                messageCount: firestore.FieldValue.increment(1),
+              },
+              { merge: true }
+            );
+          } catch (writeError: any) {
+            console.warn("save user message error:", writeError.message);
+          }
+        }
 
-      if (response.status === 403) {
-        const errData: any = await response.json().catch(() => ({}));
-        if (errData.code === 'persona_locked') {
-          // Developers always have every persona — never show an upgrade prompt.
-          Alert.alert(
-            isDeveloper ? 'Persona unavailable' : 'Upgrade required',
-            errData.error || (isDeveloper
-              ? 'This persona is currently unavailable.'
-              : 'This personality requires a paid plan.'),
+        const result = await sendChatMessage(requestBody, (token) => {
+          if (!streamedId) {
+            const id = makeMessageId();
+            streamedId = id;
+            streamedText = token;
+            setMessages((prev) => [
+              ...prev,
+              {
+                id,
+                text: streamedText,
+                sender: "ai",
+                personality,
+                religionSubType,
+                isConversationMessage: false,
+              },
+            ]);
+            return;
+          }
+          streamedText += token;
+          const id = streamedId;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === id ? { ...m, text: streamedText } : m))
           );
-          setLoading(false);
+        });
+        // Non-stream replies degrade to the same shape (status + parsed body).
+        const response = { status: result.status };
+        const parsedError = async (): Promise<any> => result.body ?? {};
+
+        // Limit responses (429; 402 kept for older backends). NEVER
+        // auto-retry a 429 — the cooldown gate in handleSend enforces the
+        // >= 60s backoff instead (golden rule 5). Quota 429s carry
+        // code:"quota_exhausted" + usage fields and surface the quota
+        // screen; other 429s are the 30/5min per-uid limiter or a per-IP
+        // throttle and surface a generic "hold on" cooldown.
+        if (response.status === 429 || response.status === 402) {
+          const errData: any = await parsedError();
+          const isQuotaLimit =
+            response.status === 402 || errData?.code === "quota_exhausted";
+          const refreshAt =
+            errData?.nextRefreshAt && Number(errData.nextRefreshAt) > Date.now()
+              ? Number(errData.nextRefreshAt)
+              : isQuotaLimit
+                ? null
+                : Date.now() + ABUSE_COOLDOWN_MS;
+          if (!quotaExempt) {
+            cooldownUntilRef.current = isQuotaLimit ? 0 : (refreshAt as number) || 0;
+            setLimitSignal({
+              hit: true,
+              kind: isQuotaLimit ? "quota" : "cooldown",
+              refreshAt,
+              showRefillTimer: isQuotaLimit
+                ? errData?.showRefillTimer === true
+                : Boolean(refreshAt),
+              messagesUsed: typeof errData?.messagesUsed === "number" ? errData.messagesUsed : 0,
+              messagesTotal: typeof errData?.messagesTotal === "number" ? errData.messagesTotal : 0,
+              // Never derive quota percent locally — use the server value.
+              quotaPercent:
+                typeof errData?.quotaPercent === "number" ? errData.quotaPercent : null,
+              code: typeof errData?.code === "string" ? errData.code : null,
+            });
+          }
+          // The server is the source of truth for quota — refetch after any
+          // 429 cycle (Issue 2); never compute `remaining` client-side.
+          await refreshPlan().catch(() => {});
           return;
         }
-        throw new Error(errData.error || "Backend request failed");
-      }
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Backend request failed");
-      }
-
-      const rawContent = data.reply || data.choices?.[0]?.message?.content;
-      if (!rawContent) {
-        throw new Error("Invalid AI response");
-      }
-
-      const aiText = normalizeNewlines(rawContent);
-      const echoedPersonality = data.personality || personality;
-
-      const aiReply: Message = {
-        id: makeMessageId(),
-        text: aiText,
-        sender: "ai",
-        personality: echoedPersonality,
-        religionSubType: isStranger ? undefined : religionSubType,
-        isConversationMessage: true,
-      };
-
-      if (!isStranger && activeConversationId) {
-        try {
-          await conversationMessagesRef(uid, activeConversationId).doc(aiReply.id).set({
-            text: aiReply.text,
-            sender: aiReply.sender,
-            content: aiReply.text,
-            role: "assistant",
-            personality: echoedPersonality,
-            ...(personality === "Guide" && religionSubType ? { religionSubType } : {}),
-            createdAt: firestore.FieldValue.serverTimestamp(),
+        // 503 ai_upstream_error — quota was NOT consumed. Auto-retry at most
+        // once after ~2s per session (Issue 8), then defer to a
+        // user-initiated retry delayed by >= 15-30s.
+        if (response.status === 503) {
+          // A mid-stream failure leaves a partial reply — drop it so the user
+          // never sees half a sentence presented as the final answer.
+          dropPartialStream();
+          if (!opts?.retry && upstreamAutoRetriesRef.current < 1) {
+            upstreamAutoRetriesRef.current += 1;
+            setServiceError({
+              hit: true,
+              autoRetrying: true,
+              message: currentInput,
+            });
+            await new Promise((r) => setTimeout(r, UPSTREAM_AUTO_RETRY_DELAY_MS));
+            await executeSend(currentInput, { retry: true });
+            return;
+          }
+          setServiceError({
+            hit: true,
+            cooldownUntil: Date.now() + UPSTREAM_MANUAL_RETRY_DELAY_MS,
+            message: currentInput,
           });
-          await conversationRef(uid, activeConversationId).set(
-            {
-              updatedAt: firestore.FieldValue.serverTimestamp(),
-              lastMessage: aiReply.text,
-              messageCount: firestore.FieldValue.increment(1),
-            },
-            { merge: true }
-          );
-        } catch (writeError: any) {
-          console.warn("save ai message error:", writeError.message);
+          return;
         }
+
+        // 400: composer validation errors. The server drops an invalid
+        // religionSubType silently only for history; an invalid *live* value
+        // bounces as 400 — drop the subtype and retry once with plain Guide.
+        if (response.status === 400) {
+          const errData: any = await parsedError();
+          if (
+            requestBody.religionSubType &&
+            /religionSubType/i.test(String(errData?.error || ""))
+          ) {
+            await executeSend(currentInput, { retry: true, skipReligion: true });
+            return;
+          }
+          setComposerError(errData?.error || "Please adjust your message and try again.");
+          return;
+        }
+
+        if (response.status === 403) {
+          const errData: any = await parsedError();
+          if (errData.code === 'persona_locked') {
+            // Developers always have every persona — never show an upgrade prompt.
+            Alert.alert(
+              isDeveloper ? 'Persona unavailable' : 'Upgrade required',
+              errData.error || (isDeveloper
+                ? 'This persona is currently unavailable.'
+                : 'This personality requires a paid plan.'),
+              isDeveloper
+                ? undefined
+                : [{ text: 'Not now', style: 'cancel' }, {
+                    text: 'Upgrade ✨',
+                    onPress: () => navigation.navigate("Paywall"),
+                  }],
+            );
+            return;
+          }
+          throw new Error(errData.error || "Backend request failed");
+        }
+
+        const data = result.body ?? {};
+
+        if (response.status < 200 || response.status >= 300) {
+          throw new Error(data.error || "Backend request failed");
+        }
+
+        const rawContent = data.reply || data.choices?.[0]?.message?.content;
+        if (!rawContent) {
+          throw new Error("Invalid AI response");
+        }
+
+        // Server decision wins: noHistory / storeHistory:false means the turn
+        // must not persist anywhere, including our own DB.
+        const noHistory = isStranger || data.noHistory === true || data.storeHistory === false;
+        const echoedPersonality = data.personality || personality;
+
+        {
+          // The reply is ALWAYS rendered; only persistence is gated by
+          // noHistory / storeHistory:false (Issue 5). A partial stream is
+          // dropped first so the final text lands exactly once.
+          if (noHistory) dropPartialStream();
+          const aiReply: Message = {
+            id: noHistory ? makeMessageId() : streamedId ?? makeMessageId(),
+            text: normalizeNewlines(rawContent),
+            sender: "ai",
+            personality: echoedPersonality,
+            religionSubType: religionSubType,
+            isConversationMessage: true,
+          };
+          if (!noHistory && activeConversationId) {
+            try {
+              await conversationMessagesRef(uid, activeConversationId).doc(aiReply.id).set({
+                text: aiReply.text,
+                sender: aiReply.sender,
+                content: aiReply.text,
+                role: "assistant",
+                personality: echoedPersonality,
+                ...(personality === "Guide" && religionSubType ? { religionSubType } : {}),
+                createdAt: firestore.FieldValue.serverTimestamp(),
+              });
+              await conversationRef(uid, activeConversationId).set(
+                {
+                  updatedAt: firestore.FieldValue.serverTimestamp(),
+                  lastMessage: aiReply.text,
+                  messageCount: firestore.FieldValue.increment(1),
+                },
+                { merge: true }
+              );
+            } catch (writeError: any) {
+              console.warn("save ai message error:", writeError.message);
+            }
+          }
+          setMessages((prev) => {
+            if (streamedId && prev.some((m) => m.id === streamedId)) {
+              return prev.map((m) => (m.id === streamedId ? aiReply : m));
+            }
+            if (prev.some((m) => m.id === aiReply.id)) return prev;
+            return [...prev, aiReply];
+          });
+        }
+        if (noHistory && userDocRef) {
+          // Strip the already-persisted user turn — this persona never persists.
+          try {
+            await userDocRef.delete();
+          } catch {}
+          setMessages((prev) => withoutRetriedMessage(prev, currentInput));
+        }
+
+        upstreamAutoRetriesRef.current = 0;
+        setServiceError(null);
+
+        // The server is the source of truth for quota — refetch after every
+        // delivered reply (refunds/downgrades can move it either way).
+        await refreshPlan();
+      } catch (error: any) {
+        if (__DEV__) console.log("handleSend error:", error?.message);
+        dropPartialStream();
+        const text = error?.name === 'AbortError'
+          ? "That took too long — please try again."
+          : "Sorry, I couldn't respond right now. Please try again.";
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.sender === "ai" && last.text === text) return prev;
+          return [
+            ...prev,
+            {
+              id: makeMessageId(),
+              text,
+              sender: "ai",
+            },
+          ];
+        });
+      } finally {
+        setLoading(false);
       }
+    })();
 
-      setMessages((prev) =>
-        prev.some((m) => m.id === aiReply.id) ? prev : [...prev, aiReply]
-      );
-
-      await refreshPlan();
-
-    } catch (error: any) {
-      if (__DEV__) console.log("handleSend error:", error?.message);
-      const text = error?.name === 'AbortError'
-        ? "That took too long — please try again."
-        : "Sorry, I couldn't respond right now. Please try again.";
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last && last.sender === "ai" && last.text === text) return prev;
-        return [
-          ...prev,
-          {
-            id: makeMessageId(),
-            text,
-            sender: "ai" as const,
-          },
-        ];
-      });
+    chatInFlight = task;
+    try {
+      await task;
     } finally {
+      if (chatInFlight === task) {
+        chatInFlight = null;
+      }
       setLoading(false);
     }
   };
 
-  const sendButtonStyle = { backgroundColor: loading ? colors.borderStrong : theme.sendBtn };
+  const isOnline = useOnlineStatus(30_000);
+  // A quota 429 may omit nextRefreshAt; fall back to the freshly fetched
+  // server value so the refill countdown still reflects server truth.
+  const limitRefreshAt =
+    limitSignal.hit && limitSignal.kind === "quota"
+      ? limitSignal.refreshAt ?? nextRefreshAt
+      : limitSignal.refreshAt;
+  const secondsLeft = useCountdown(limitSignal.hit ? limitRefreshAt : null);
+  const serviceRetrySeconds = useCountdown(
+    serviceError?.hit === true && typeof serviceError?.cooldownUntil === "number"
+      ? serviceError.cooldownUntil
+      : null
+  );
+  // 503 manual-retry hold (Issue 8): the retry CTA stays disabled until the
+  // >= 15-30s delay elapses, so a dead upstream is never hammered.
+  const serviceRetryHold = !quotaExempt && serviceError?.hit === true && serviceRetrySeconds > 0;
 
-  // Developer accounts have unlimited quota — never render quota/refill UI.
-  const quotaExhausted = !isDeveloper && limitSignal.hit && limitSignal.showRefillTimer;
-  const rateLimited = !isDeveloper && limitSignal.hit && !limitSignal.showRefillTimer;
-  const secondsLeft = useCountdown(limitSignal.refreshAt);
-  const isOnline = useOnlineStatus();
+  // uiHints.hideQuotaInChat governs ambient quota display only; this banner
+  // exists solely because the server refused the turn with quota_exhausted,
+  // which §F requires us to explain (counts + percent + optional countdown).
+  const quotaBannerActive = !quotaExempt && limitSignal.hit && limitSignal.kind === "quota";
+  const cooldownBannerActive = !quotaExempt && limitSignal.hit && limitSignal.kind === "cooldown";
+
+  const isSendDisabled =
+    loading ||
+    !isOnline ||
+    isChatInFlight() ||
+    input.trim().length > MAX_MESSAGE_LENGTH ||
+    quotaBannerActive ||
+    cooldownBannerActive;
+
+  const sendButtonStyle = {
+    backgroundColor: loading || isSendDisabled ? colors.borderStrong : theme.sendBtn,
+  };
 
   const handleSend = () => {
     if (!isOnline) {
       Alert.alert("You're offline", "Please check your connection and try again.");
       return;
     }
+    if (quotaBannerActive || cooldownBannerActive) return;
+    if (serviceError?.hit) {
+      // A stale 503 banner from a previous failed turn: this is a NEW
+      // message, so drop the old banner instead of forcing Retry.
+      setServiceError(null);
+    }
+    if (cooldownUntilRef.current > Date.now()) {
+      // 429 never means "retry now" (golden rule 5) — re-surface the banner.
+      if (!limitSignal.hit) {
+        setLimitSignal({
+          hit: true,
+          kind: "cooldown",
+          refreshAt: cooldownUntilRef.current,
+          showRefillTimer: true,
+          messagesUsed: 0,
+          messagesTotal: 0,
+          quotaPercent: null,
+          code: null,
+        });
+      }
+      return;
+    }
     executeSend(input);
   };
 
-  const clearedExpiredSignal = useRef(false);
+  // Timed-limit expiry: when a refill window or abuse cooldown elapses,
+  // drop the banner and refetch the server's quota truth.
   useEffect(() => {
-    if (quotaExhausted && secondsLeft === 0 && !clearedExpiredSignal.current) {
-      clearedExpiredSignal.current = true;
-      setLimitSignal({ hit: false, refreshAt: null, showRefillTimer: false });
-      refreshPlan();
-    } else if (secondsLeft > 0) {
-      clearedExpiredSignal.current = false;
+    if (limitSignal.hit && limitRefreshAt != null && secondsLeft === 0) {
+      setLimitSignal(CLEAR_LIMIT_SIGNAL);
+      cooldownUntilRef.current = 0;
+      refreshPlan().catch(() => {});
     }
-  }, [quotaExhausted, secondsLeft, refreshPlan]);
+  }, [limitSignal.hit, limitRefreshAt, secondsLeft, refreshPlan]);
+
+  // The server lifted the quota cap (fresh isLimitReached from
+  // /api/user/usage) — the local banner is no longer true; clear it.
+  useEffect(() => {
+    if (limitSignal.hit && limitSignal.kind === "quota" && !isLimitReached) {
+      setLimitSignal(CLEAR_LIMIT_SIGNAL);
+    }
+  }, [limitSignal.hit, limitSignal.kind, isLimitReached]);
 
   const renderMessage = ({ item }: { item: Message }) => {
     const itemPersona = item.personality || personality;
@@ -973,7 +1266,9 @@ export default function ChatScreen() {
               <Text style={styles.limitEmoji}>⚠️</Text>
               <View style={styles.limitBannerCopy}>
                 <Text style={[styles.limitTitle, styles.serviceErrorTitle]}>
-                  AI Service Unavailable (503)
+                  {serviceError.autoRetrying
+                    ? "AI is briefly unavailable, retrying shortly…"
+                    : "AI is briefly unavailable"}
                 </Text>
                 <Text style={styles.serviceErrorSub}>
                   Temporary error. Quota was NOT consumed.
@@ -981,20 +1276,29 @@ export default function ChatScreen() {
               </View>
             </View>
             <TouchableOpacity
-              style={[styles.upgradeBtn, { backgroundColor: theme.sendBtn }]}
+              style={[
+                styles.upgradeBtn,
+                { backgroundColor: theme.sendBtn, opacity: serviceRetryHold ? 0.5 : 1 },
+              ]}
               onPress={() => {
                 const retryMsg = serviceError.message;
                 setServiceError(null);
                 if (retryMsg) executeSend(retryMsg, { retry: true });
               }}
+              disabled={serviceRetryHold || loading}
               activeOpacity={0.85}
             >
-              <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>Retry ↺</Text>
+              <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>
+                {serviceRetryHold ? "Retry soon" : "Retry ↺"}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {quotaExhausted ? (
+        {quotaBannerActive ? (
+          // Quota is a hard cap now (Issue 2): show server-provided counts,
+          // and the refill countdown ONLY when the server says it is useful
+          // (showRefillTimer === true, the 75% rule).
           <View style={[styles.limitBanner, { borderColor: theme.inputBorder }]}>
             <View style={styles.limitBannerRow}>
               <Text style={[styles.limitEmoji, { color: theme.typingColor }]}>💛</Text>
@@ -1003,22 +1307,35 @@ export default function ChatScreen() {
                   Message limit reached
                 </Text>
                 <Text style={[styles.limitCountdown, { color: theme.typingColor }]}>
-                  New messages in{" "}
-                  <Text style={[styles.limitCountdownBold, { color: theme.typingColor }]}>
-                    {limitSignal.refreshAt ? formatCountdown(secondsLeft) : "--:--:--"}
-                  </Text>
+                  {limitSignal.messagesTotal > 0
+                    ? `${limitSignal.messagesUsed}/${limitSignal.messagesTotal} messages used this window${
+                        limitSignal.quotaPercent != null
+                          ? ` (${Math.round(limitSignal.quotaPercent)}%)`
+                          : ""
+                      }.`
+                    : "You have used all messages in this window."}
                 </Text>
+                {limitSignal.showRefillTimer && limitRefreshAt != null && (
+                  <Text style={[styles.limitCountdown, { color: theme.typingColor }]}>
+                    New messages in{" "}
+                    <Text style={[styles.limitCountdownBold, { color: theme.typingColor }]}>
+                      {formatCountdown(secondsLeft)}
+                    </Text>
+                  </Text>
+                )}
               </View>
             </View>
             <TouchableOpacity
               style={[styles.upgradeBtn, { backgroundColor: theme.sendBtn }]}
-              onPress={() => navigation.navigate("Settings")}
+              onPress={() => navigation.navigate("Paywall")}
               activeOpacity={0.85}
             >
-              <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>View in Settings</Text>
+              <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>Upgrade ✨</Text>
             </TouchableOpacity>
           </View>
-        ) : rateLimited ? (
+        ) : cooldownBannerActive ? (
+          // Abuse/IP throttles are share-network by design (Issue 6) — surface
+          // "you're sending too fast" with the backed-off countdown.
           <View style={[styles.limitBanner, { borderColor: theme.inputBorder }]}>
             <View style={styles.limitBannerRow}>
               <Text style={[styles.limitEmoji, { color: theme.typingColor }]}>⏳</Text>
@@ -1027,19 +1344,28 @@ export default function ChatScreen() {
                   Too many requests
                 </Text>
                 <Text style={[styles.limitCountdown, { color: theme.typingColor }]}>
-                  Please retry in a bit.
+                  {limitSignal.code === "ip_rate_limited"
+                    ? "You've hit the network limit for this network. Please hold on."
+                    : "You're sending messages too quickly. Please hold on."}
+                  {limitSignal.refreshAt != null
+                    ? ` Retry in ${formatCountdown(secondsLeft)}.`
+                    : ""}
                 </Text>
               </View>
             </View>
             <TouchableOpacity
               style={[styles.upgradeBtn, { backgroundColor: theme.sendBtn }]}
-              onPress={() => setLimitSignal({ hit: false, refreshAt: null, showRefillTimer: false })}
+              onPress={() => setLimitSignal(CLEAR_LIMIT_SIGNAL)}
               activeOpacity={0.85}
             >
               <Text style={[styles.upgradeBtnText, { color: theme.headerText }]}>Dismiss</Text>
             </TouchableOpacity>
           </View>
         ) : null}
+
+        {composerError && (
+          <Text style={styles.composerError}>{composerError}</Text>
+        )}
 
         <View style={styles.inputContainer}>
           <TextInput
@@ -1048,7 +1374,10 @@ export default function ChatScreen() {
             placeholder="What's on your mind?"
             placeholderTextColor={colors.textMuted}
             value={input}
-            onChangeText={(t) => setInput(t.slice(0, MAX_MESSAGE_LENGTH))}
+            onChangeText={(t) => {
+              setInput(t.slice(0, MAX_MESSAGE_LENGTH));
+              if (composerError) setComposerError(null);
+            }}
             onSubmitEditing={handleSend}
             returnKeyType="send"
             editable={!loading}
@@ -1058,7 +1387,7 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={[styles.sendButton, sendButtonStyle]}
             onPress={handleSend}
-            disabled={loading}
+            disabled={isSendDisabled}
           >
             <Text style={styles.sendIcon}>➤</Text>
           </TouchableOpacity>
@@ -1136,6 +1465,13 @@ const styles = StyleSheet.create({
   userText: { color: colors.onPrimary },
   typingContainer: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 6 },
   typingText: { marginLeft: 8, fontSize: 13, fontStyle: "italic" },
+  composerError: {
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: "600",
+    paddingHorizontal: 20,
+    paddingBottom: 4,
+  },
   offlineBanner: {
     flexDirection: "row",
     alignItems: "center",

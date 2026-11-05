@@ -31,14 +31,19 @@ type SettingsNavProp = NativeStackNavigationProp<RootStackParamList>;
 export default function SettingsScreen() {
   const navigation = useNavigation<SettingsNavProp>();
   const route = useRoute<any>();
-  const { plan, messagesRemaining, nextRefreshAt, expiresAt, isTrial, trialEndsAt, refreshPlan, showRefillTimer, messagesUsed, messagesTotal, quotaPercent, isDeveloper } = useToken();
+  const { plan, messagesRemaining, nextRefreshAt, expiresAt, isTrial, trialEndsAt, refreshPlan, showRefillTimer, messagesUsed, messagesTotal, quotaPercent, isDeveloper, unlimited, uiHints } = useToken();
+  // Developer or server-unlimited accounts never see quota UI (§E).
+  const quotaExempt = isDeveloper || unlimited;
   const [userProfile, setUserProfile] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
   const currentUser = auth().currentUser;
   const isLoggedIn = Boolean(currentUser);
 
   const secondsLeft = useCountdown(showRefillTimer ? nextRefreshAt : null);
-  const showUsageBar = !isDeveloper && quotaPercent >= 0.75 && messagesTotal > 0;
+  // §E uiHints: when the server keeps quota to the Usage screen (the default),
+  // Settings shows plan/expiry only — no counters, no meter.
+  const showQuotaMeter = !quotaExempt && uiHints?.showQuotaInUsageOnly === false;
+  const showUsageBar = showQuotaMeter && quotaPercent >= 75 && messagesTotal > 0;
   const forwardedTab = useRef<string | null>(null);
 
   useFocusEffect(
@@ -178,6 +183,9 @@ export default function SettingsScreen() {
                       if (result.status === 409 && result.body?.code === 'active_subscription') {
                         try {
                           await cancelSubscription();
+                          // Subscription state changed server-side; refresh the
+                          // plan (Issue 4) even though deletion follows.
+                          await refreshPlan().catch(() => {});
                         } catch (cancelErr: any) {
                           if (cancelErr instanceof ApiError && cancelErr.status === 401) {
                             await finishDeletedAndSignOut();
@@ -338,9 +346,11 @@ export default function SettingsScreen() {
                 {isDeveloper && <DeveloperBadge compact />}
               </View>
               <Text style={styles.planSub}>
-                {isDeveloper
+                {quotaExempt
                   ? "Unlimited (Developer)"
-                  : showRefillTimer && nextRefreshAt
+                  : !showQuotaMeter
+                    ? "Manage your plan and usage"
+                    : showRefillTimer && nextRefreshAt
                     ? `${messagesRemaining} ${messagesRemaining === 1 ? "message" : "messages"} left · refills in ${formatRefreshIn(secondsLeft)}`
                     : messagesTotal > 0
                       ? `${messagesUsed}/${messagesTotal} used · ${messagesRemaining} left`
@@ -348,7 +358,12 @@ export default function SettingsScreen() {
               </Text>
               {showUsageBar && (
                 <View style={styles.usageBarTrack}>
-                  <View style={[styles.usageBarFill, { width: `${Math.round(quotaPercent * 100)}%` }]} />
+                  <View
+                    style={[
+                      styles.usageBarFill,
+                      { width: `${Math.min(100, Math.max(0, Math.round(quotaPercent)))}%` },
+                    ]}
+                  />
                 </View>
               )}
               {!isDeveloper && expiresAt && planKey !== 'free' && !isTrial && (

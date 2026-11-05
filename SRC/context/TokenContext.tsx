@@ -3,6 +3,8 @@ import { usePlan, PlanInfo } from "../hooks/usePlan";
 
 interface TokenContextType extends PlanInfo {
   loading: boolean;
+  /** Last usage/plan read failed transiently; the state shown is last-known. */
+  refreshFailed: boolean;
   refreshPlan: () => Promise<PlanInfo>;
   refreshDeveloperAccess: () => Promise<PlanInfo>;
 }
@@ -25,7 +27,9 @@ const TokenContext = createContext<TokenContextType>({
   refreshHours: null,
   isDeveloper: false,
   unlimited: false,
+  uiHints: null,
   loading: true,
+  refreshFailed: false,
   refreshPlan: async () => ({
     plan: 'free',
     messagesRemaining: 0,
@@ -44,6 +48,7 @@ const TokenContext = createContext<TokenContextType>({
     refreshHours: null,
     isDeveloper: false,
     unlimited: false,
+    uiHints: null,
   }),
   refreshDeveloperAccess: async () => ({
     plan: 'free',
@@ -63,11 +68,12 @@ const TokenContext = createContext<TokenContextType>({
     refreshHours: null,
     isDeveloper: false,
     unlimited: false,
+    uiHints: null,
   }),
 });
 
 export const TokenProvider = ({ children }: { children: React.ReactNode }) => {
-  const { plan, messagesRemaining, nextRefreshAt, isLimitReached, expiresAt, isTrial, trialEndsAt, trialUsed, trialAvailable, showRefillTimer, messagesUsed, messagesTotal, quotaPercent, refillInMs, refreshHours, isDeveloper, unlimited, loading, refreshPlan, refreshDeveloperAccess } = usePlan();
+  const { plan, messagesRemaining, nextRefreshAt, isLimitReached, expiresAt, isTrial, trialEndsAt, trialUsed, trialAvailable, showRefillTimer, messagesUsed, messagesTotal, quotaPercent, refillInMs, refreshHours, isDeveloper, unlimited, uiHints, loading, refreshFailed, refreshPlan, refreshDeveloperAccess } = usePlan();
 
   const value = useMemo<TokenContextType>(
     () => ({
@@ -88,11 +94,13 @@ export const TokenProvider = ({ children }: { children: React.ReactNode }) => {
       refreshHours,
       isDeveloper,
       unlimited,
+      uiHints,
       loading,
+      refreshFailed,
       refreshPlan,
       refreshDeveloperAccess,
     }),
-    [plan, messagesRemaining, nextRefreshAt, isLimitReached, expiresAt, isTrial, trialEndsAt, trialUsed, trialAvailable, showRefillTimer, messagesUsed, messagesTotal, quotaPercent, refillInMs, refreshHours, isDeveloper, unlimited, loading, refreshPlan, refreshDeveloperAccess]
+    [plan, messagesRemaining, nextRefreshAt, isLimitReached, expiresAt, isTrial, trialEndsAt, trialUsed, trialAvailable, showRefillTimer, messagesUsed, messagesTotal, quotaPercent, refillInMs, refreshHours, isDeveloper, unlimited, uiHints, loading, refreshFailed, refreshPlan, refreshDeveloperAccess]
   );
 
   return (

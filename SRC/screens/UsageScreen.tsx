@@ -35,8 +35,12 @@ export default function UsageScreen() {
     isTrial,
     trialEndsAt,
     isDeveloper,
+    unlimited,
+    refreshFailed,
     refreshPlan,
   } = useToken();
+  // Developer or server-unlimited accounts never see quota UI (§E).
+  const quotaExempt = isDeveloper || unlimited;
   const [refreshing, setRefreshing] = useState(false);
 
   useFocusEffect(
@@ -54,9 +58,9 @@ export default function UsageScreen() {
     }
   }, [refreshPlan]);
 
-  const secondsLeft = useCountdown(!isDeveloper && showRefillTimer ? nextRefreshAt : null);
+  const secondsLeft = useCountdown(!quotaExempt && showRefillTimer ? nextRefreshAt : null);
   const refillLabel =
-    !isDeveloper && showRefillTimer
+    !quotaExempt && showRefillTimer
       ? nextRefreshAt
         ? `Refills in ${formatCountdown(secondsLeft)}`
         : typeof refillInMs === 'number' && refillInMs > 0
@@ -67,7 +71,7 @@ export default function UsageScreen() {
   const planKey: PlanKey = (plan === 'pro' || plan === 'ultimate') ? (plan as PlanKey) : 'free';
   const planStyle = PLAN_COLORS[planKey] ?? PLAN_COLORS.free;
   const planInfo = PLANS[planKey];
-  const percent = Math.round(Math.min(1, Math.max(0, quotaPercent)) * 100);
+  const percent = Math.round(Math.min(100, Math.max(0, quotaPercent)));
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -93,13 +97,13 @@ export default function UsageScreen() {
             {isDeveloper && <DeveloperBadge compact />}
           </View>
 
-          {isDeveloper ? (
+          {quotaExempt ? (
             <>
               <Text style={[styles.unlimitedText, { color: planStyle.text }]}>
                 Unlimited (Developer)
               </Text>
               <Text style={styles.hintText}>
-                Server-granted developer access. No chat quota is consumed.
+                Server-granted unlimited access. No chat quota is consumed.
               </Text>
             </>
           ) : (
@@ -131,7 +135,17 @@ export default function UsageScreen() {
           )}
         </View>
 
-        {!isDeveloper && (
+        {refreshFailed && !refreshing && (
+          // Transient 500/network failure: keep last-known numbers, offer a
+          // quiet retry instead of an error toast (Issue 4).
+          <TouchableOpacity onPress={onRefresh} activeOpacity={0.7}>
+            <Text style={styles.staleText}>
+              Showing last known usage · refreshing… tap to retry
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {!quotaExempt && (
           <Text style={styles.note}>
             Stranger chats count toward your quota like normal messages.
           </Text>
@@ -187,6 +201,13 @@ const styles = StyleSheet.create({
   hintText: { fontSize: 12, color: colors.textMuted, marginTop: 8 },
   trialText: { fontSize: 12, color: colors.textSubtle, marginTop: 8, fontWeight: "600" },
   note: { fontSize: 12, color: colors.textMuted, marginTop: 16, textAlign: "center" },
+  staleText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 12,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
   upgradeBtn: {
     backgroundColor: colors.primary, borderRadius: 14,
     paddingVertical: 16, alignItems: "center", marginTop: 20,

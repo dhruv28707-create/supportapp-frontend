@@ -18,6 +18,7 @@ export interface PlanState {
   showRefillTimer: boolean;
   messagesUsed: number;
   messagesTotal: number;
+  /** Server-reported 0..100 percent of quota consumed. */
   quotaPercent: number;
   refillInMs: number | null;
   refreshHours: number | null;
@@ -25,6 +26,12 @@ export interface PlanState {
   isDeveloper: boolean;
   /** True when the backend grants unlimited chat quota (developer accounts). */
   unlimited: boolean;
+  /** Server placement hints for quota UI (null on older backends). */
+  uiHints: {
+    showQuotaInUsageOnly: boolean;
+    hideQuotaInLobby: boolean;
+    hideQuotaInChat: boolean;
+  } | null;
 }
 
 export interface PlanOption {
@@ -77,11 +84,13 @@ function toPlanState(data: any): PlanState {
   const messagesTotal = data?.messagesTotal ?? 0;
   const messagesUsed =
     data?.messagesUsed ?? (messagesTotal > 0 ? Math.max(0, messagesTotal - messagesRemaining) : 0);
+  // Server scale is 0..100 (§E). Older backends that omit quotaPercent get
+  // the same scale derived from the server-reported counts.
   const quotaPercent =
     typeof data?.quotaPercent === 'number'
       ? data.quotaPercent
       : messagesTotal > 0
-        ? Math.min(1, Math.max(0, messagesUsed / messagesTotal))
+        ? Math.min(100, Math.max(0, (messagesUsed / messagesTotal) * 100))
         : 0;
   return {
     plan: (data?.plan as Plan) || 'free',
@@ -92,8 +101,10 @@ function toPlanState(data: any): PlanState {
     isTrial,
     trialEndsAt: data?.trialEndsAt ?? null,
     trialUsed,
-    trialAvailable: data?.trialAvailable ?? (!isTrial && !trialUsed),
-    showRefillTimer: data?.showRefillTimer ?? false,
+    // Trial eligibility is decided ONLY by the server (Issue 1) — never
+    // inferred locally from account age, token claims, or trialUsed.
+    trialAvailable: data?.trialAvailable === true,
+    showRefillTimer: data?.showRefillTimer === true,
     messagesUsed,
     messagesTotal,
     quotaPercent,
@@ -101,6 +112,13 @@ function toPlanState(data: any): PlanState {
     refreshHours: typeof data?.refreshHours === 'number' ? data.refreshHours : null,
     isDeveloper: data?.isDeveloper === true,
     unlimited: data?.unlimited === true,
+    uiHints: data?.uiHints
+      ? {
+          showQuotaInUsageOnly: data.uiHints.showQuotaInUsageOnly !== false,
+          hideQuotaInLobby: data.uiHints.hideQuotaInLobby !== false,
+          hideQuotaInChat: data.uiHints.hideQuotaInChat !== false,
+        }
+      : null,
   };
 }
 

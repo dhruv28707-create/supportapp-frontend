@@ -17,11 +17,14 @@ export function trialDaysLeft(trialEndsAt: number | string | null): number {
 }
 
 export default function TrialBanner({ compact = false }: { compact?: boolean }) {
-  const { isTrial, trialEndsAt, trialAvailable, isDeveloper, refreshPlan, refreshDeveloperAccess } = useToken();
+  const { plan, isTrial, trialEndsAt, trialAvailable, isDeveloper, refreshPlan, refreshDeveloperAccess } = useToken();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cooling, setCooling] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // Terminal server verdicts (already used / ineligible / subscribed /
+  // developer) mean this identity must never see a trial CTA again.
+  const [ctaBlocked, setCtaBlocked] = useState(false);
 
   useEffect(() => {
     AsyncStorage.getItem(DISMISS_KEY)
@@ -47,20 +50,33 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
       const code = e instanceof TrialApiError ? e.code : undefined;
       const status = e instanceof TrialApiError ? e.status : undefined;
       if (code === 'developer_account') {
-        setError('Developer accounts already have full access');
+        setCtaBlocked(true);
         await refreshDeveloperAccess().catch(() => {});
         return;
       }
-      if (
-        code === 'trial_already_used' ||
-        code === 'already_subscribed' ||
-        code === 'trial_not_eligible'
-      ) {
+      if (code === 'trial_already_used') {
+        // One free trial per identity, ever. No CTA, no retry.
+        setCtaBlocked(true);
         await refreshPlan().catch(() => {});
-      } else if (status === 429) {
+        return;
+      }
+      if (code === 'already_subscribed') {
+        // Already paying — plan management, never a trial CTA.
+        setCtaBlocked(true);
+        await refreshPlan().catch(() => {});
+        return;
+      }
+      if (code === 'trial_not_eligible') {
+        // Account outside the new-account window — shop/upgrade only.
+        setCtaBlocked(true);
+        await refreshPlan().catch(() => {});
+        return;
+      }
+      if (status === 429) {
+        // 429 never means "retry now" — hold for >= 60s (golden rule 5).
         setCooling(true);
-        setError('Too many attempts. Please try again in a bit.');
-        setTimeout(() => setCooling(false), 30000);
+        setError('Too many attempts. Please try again in a minute.');
+        setTimeout(() => setCooling(false), 60_000);
       } else {
         setError(e?.message || 'Could not start trial');
       }
@@ -84,7 +100,7 @@ export default function TrialBanner({ compact = false }: { compact?: boolean }) 
     );
   }
 
-  if (trialAvailable && !dismissed) {
+  if (trialAvailable && !dismissed && !ctaBlocked && plan === 'free') {
     return (
       <View style={styles.cta}>
         <Text style={styles.ctaTitle}>Try Ultimate free for 5 days</Text>

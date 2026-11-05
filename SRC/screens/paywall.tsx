@@ -21,12 +21,11 @@ import { trialDaysLeft } from "../components/TrialBanner";
 import DeveloperBadge from "../components/DeveloperBadge";
 import { colors } from "../theme";
 
-// Offline prices only. Backend catalog is the source of truth.
+// Presentation metadata only (names, colors, feature copy). Prices, quotas
+// and tier names shown as numbers always come from /api/plans (golden rule 3).
 const FALLBACK_PLANS = {
   pro: {
     name: "Pro",
-    monthlyPrice: 179,
-    yearlyPrice: 699,
     color: colors.primary,
     textColor: colors.text,
     cardBg: "#FFFFFF",
@@ -44,8 +43,6 @@ const FALLBACK_PLANS = {
   },
   ultimate: {
     name: "Ultimate",
-    monthlyPrice: 199,
-    yearlyPrice: 799,
     color: colors.onPrimary,
     textColor: colors.onPrimary,
     cardBg: colors.primary,
@@ -110,6 +107,9 @@ export default function PaywallScreen() {
   const [trialLoading, setTrialLoading] = useState(false);
   const [trialCooling, setTrialCooling] = useState(false);
   const [trialError, setTrialError] = useState<string | null>(null);
+  // Terminal server verdicts (already used / ineligible / subscribed /
+  // developer) must never show a trial CTA again for this identity.
+  const [trialBlocked, setTrialBlocked] = useState(false);
   const [catalogPrices, setCatalogPrices] = useState<Record<string, number> | null>(null);
   const [catalogMeta, setCatalogMeta] = useState<Record<string, { messageLimit: number; refreshHours: number }> | null>(null);
 
@@ -159,20 +159,37 @@ export default function PaywallScreen() {
       if (code === 'developer_account') {
         // Server granted (or already recognizes) developer status — refresh
         // the token once, then re-read plan/usage. Never retry the trial.
+        setTrialBlocked(true);
         setTrialError('Developer accounts already have full access');
         await refreshDeveloperAccess().catch(() => {});
         return;
       }
-      if (
-        code === 'trial_already_used' ||
-        code === 'already_subscribed' ||
-        code === 'trial_not_eligible'
-      ) {
+      if (code === 'trial_already_used') {
+        // One free trial per identity, ever — no second CTA, never a retry.
+        setTrialBlocked(true);
+        setTrialError('Your free trial has already been used on this account.');
         await refreshPlan().catch(() => {});
-      } else if (status === 429) {
+        return;
+      }
+      if (code === 'already_subscribed') {
+        // Already paying — this is plan management, not a trial.
+        setTrialBlocked(true);
+        setTrialError('You are already subscribed — manage your plan below.');
+        await refreshPlan().catch(() => {});
+        return;
+      }
+      if (code === 'trial_not_eligible') {
+        // Outside the new-account window: route to upgrade, never retry.
+        setTrialBlocked(true);
+        setTrialError('Trials are only available for new accounts — choose a plan below.');
+        await refreshPlan().catch(() => {});
+        return;
+      }
+      if (status === 429) {
+        // 429 never means "retry now" (golden rule 5) — hold for >= 60s.
         setTrialCooling(true);
-        setTrialError('Too many attempts. Please try again in a bit.');
-        setTimeout(() => setTrialCooling(false), 30000);
+        setTrialError('Too many attempts. Please try again in a minute.');
+        setTimeout(() => setTrialCooling(false), 60_000);
       } else {
         setTrialError(error?.message || 'Could not start trial');
       }
@@ -412,7 +429,7 @@ export default function PaywallScreen() {
               {trialDaysLeft(trialEndsAt)} day{trialDaysLeft(trialEndsAt) === 1 ? '' : 's'} left — enjoy every persona.
             </Text>
           </View>
-        ) : trialAvailable ? (
+        ) : trialAvailable && !trialBlocked ? (
           <View style={styles.trialCta}>
             <Text style={styles.trialCtaTitle}>Try Ultimate free for 5 days</Text>
             <Text style={styles.trialCtaSub}>
@@ -435,6 +452,10 @@ export default function PaywallScreen() {
         ) : trialUsed && plan === 'free' ? (
           <View style={styles.trialEnded}>
             <Text style={styles.trialEndedText}>Your free trial has ended — choose a plan to keep everything unlocked.</Text>
+          </View>
+        ) : trialError ? (
+          <View style={styles.trialEnded}>
+            <Text style={styles.trialEndedText}>{trialError}</Text>
           </View>
         ) : null}
 
@@ -476,17 +497,14 @@ export default function PaywallScreen() {
             {Object.entries(FALLBACK_PLANS).map(([key, planItem]) => {
               if (key === "pro" && (activePlanKey === "pro" || activePlanKey === "ultimate")) return null;
               const tierKey = `${key}_${billingCycle}`;
+              // Prices are server values only — never a local constant.
               const monthlyPrice = catalogPrices?.[`${key}_monthly`];
               const yearlyPrice = catalogPrices?.[`${key}_yearly`];
-              const shownPrice =
-                (billingCycle === "monthly" ? monthlyPrice : yearlyPrice) ??
-                (billingCycle === "monthly" ? planItem.monthlyPrice : planItem.yearlyPrice);
+              const shownPrice = billingCycle === "monthly" ? monthlyPrice : yearlyPrice;
               const savings =
                 monthlyPrice !== undefined && yearlyPrice !== undefined
                   ? Math.round(monthlyPrice * 12 - yearlyPrice)
-                  : monthlyPrice === undefined && yearlyPrice === undefined
-                    ? Math.round(planItem.monthlyPrice * 12 - planItem.yearlyPrice)
-                    : null;
+                  : null;
               const quota = catalogMeta?.[tierKey];
               const quotaLine = quota && quota.messageLimit > 0
                 ? `${quota.messageLimit} messages, refreshes every ${quota.refreshHours} ${quota.refreshHours === 1 ? "hour" : "hours"}`
@@ -519,7 +537,7 @@ export default function PaywallScreen() {
                         {planItem.name}
                       </Text>
                       <Text style={[styles.planPrice, planPriceColor]}>
-                        ₹{shownPrice}
+                        {shownPrice !== undefined ? `₹${shownPrice}` : "—"}
                         <Text style={styles.planPeriod}>
                           {billingCycle === "monthly" ? "/month" : "/year"}
                         </Text>

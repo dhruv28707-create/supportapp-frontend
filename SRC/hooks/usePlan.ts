@@ -3,6 +3,13 @@ import { AppState } from 'react-native';
 import auth from '@react-native-firebase/auth';
 import { apiFetch } from '../api/client';
 
+/** Server uiHints (§E): where the backend allows ambient quota display. */
+export interface QuotaUiHints {
+  showQuotaInUsageOnly: boolean;
+  hideQuotaInLobby: boolean;
+  hideQuotaInChat: boolean;
+}
+
 export interface PlanInfo {
   plan: string;
   messagesRemaining: number;
@@ -17,7 +24,7 @@ export interface PlanInfo {
   showRefillTimer: boolean;
   messagesUsed: number;
   messagesTotal: number;
-  /** 0..1 fraction of quota consumed. */
+  /** Server-reported 0..100 percent of quota consumed (see §E). */
   quotaPercent: number;
   /** Ms until refill (from /api/user/usage). Null on older backends. */
   refillInMs: number | null;
@@ -27,6 +34,8 @@ export interface PlanInfo {
   isDeveloper: boolean;
   /** True when the backend grants unlimited chat quota (developer accounts). */
   unlimited: boolean;
+  /** Server placement hints for quota UI (null on older backends). */
+  uiHints: QuotaUiHints | null;
 }
 
 const DEFAULT_PLAN: PlanInfo = {
@@ -47,15 +56,35 @@ const DEFAULT_PLAN: PlanInfo = {
   refreshHours: null,
   isDeveloper: false,
   unlimited: false,
+  uiHints: null,
 };
 
 export function usePlan() {
   const [planInfo, setPlanInfo] = useState<PlanInfo>(DEFAULT_PLAN);
   const [loading, setLoading] = useState(true);
+  // True when the last read failed transiently (500/network). UI keeps the
+  // last-known server state and can offer a subtle retry affordance.
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const planRef = useRef<PlanInfo>(planInfo);
   planRef.current = planInfo;
+  // Shared in-flight request: concurrent triggers (app start, chat turn,
+  // resume, screen focus) must never stack parallel /api/user/usage reads.
+  const inFlightRef = useRef<Promise<PlanInfo> | null>(null);
 
   const refreshPlan = useCallback(async (): Promise<PlanInfo> => {
+    if (inFlightRef.current) {
+      return inFlightRef.current;
+    }
+    const task = doRefresh().finally(() => {
+      if (inFlightRef.current === task) {
+        inFlightRef.current = null;
+      }
+    });
+    inFlightRef.current = task;
+    return task;
+  }, []);
+
+  async function doRefresh(): Promise<PlanInfo> {
     const user = auth().currentUser;
     if (!user) {
       setPlanInfo(DEFAULT_PLAN);
@@ -72,6 +101,7 @@ export function usePlan() {
         const res = await apiFetch(`/api/user/plan`);
         data = await res.json();
         if (!res.ok) {
+          setRefreshFailed(true);
           return planRef.current;
         }
       }
@@ -82,11 +112,14 @@ export function usePlan() {
         const messagesTotal = data.messagesTotal ?? 0;
         const messagesUsed =
           data.messagesUsed ?? (messagesTotal > 0 ? Math.max(0, messagesTotal - messagesRemaining) : 0);
+        // /api/user/usage reports quotaPercent on a 0..100 scale. Only when
+        // an older backend omits it do we derive the same 0..100 scale from
+        // the server-reported counts (never a local counter).
         const quotaPercent =
           typeof data.quotaPercent === 'number'
             ? data.quotaPercent
             : messagesTotal > 0
-              ? Math.min(1, Math.max(0, messagesUsed / messagesTotal))
+              ? Math.min(100, Math.max(0, (messagesUsed / messagesTotal) * 100))
               : 0;
         const fresh: PlanInfo = {
           plan: data.plan || 'free',
@@ -97,8 +130,10 @@ export function usePlan() {
           isTrial,
           trialEndsAt: data.trialEndsAt ?? null,
           trialUsed,
-          trialAvailable: data.trialAvailable ?? (!isTrial && !trialUsed),
-          showRefillTimer: data.showRefillTimer ?? false,
+          // Eligibility is decided ONLY by the server (Issue 1) — never inferred
+          // locally from account age, token claims, or trialUsed.
+          trialAvailable: data.trialAvailable === true,
+          showRefillTimer: data.showRefillTimer === true,
           messagesUsed,
           messagesTotal,
           quotaPercent,
@@ -106,17 +141,30 @@ export function usePlan() {
           refreshHours: typeof data.refreshHours === 'number' ? data.refreshHours : null,
           isDeveloper: data.isDeveloper === true,
           unlimited: data.unlimited === true,
+          // Hints default to the documented behaviour when fields are absent.
+          uiHints: data.uiHints
+            ? {
+                showQuotaInUsageOnly: data.uiHints.showQuotaInUsageOnly !== false,
+                hideQuotaInLobby: data.uiHints.hideQuotaInLobby !== false,
+                hideQuotaInChat: data.uiHints.hideQuotaInChat !== false,
+              }
+            : null,
         };
         setPlanInfo(fresh);
+        setRefreshFailed(false);
         return fresh;
       }
     } catch (e) {
+      // A 500/transient failure keeps the last-known server state visible;
+      // the caller can surface a subtle "refreshing…" affordance. Never
+      // throw plan-fetch errors at the user.
       if (__DEV__) console.log('usePlan fetch error:', e);
+      setRefreshFailed(true);
       return planRef.current;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }
 
   /**
    * Developer access is granted server-side. When the backend tells us we are
@@ -153,6 +201,12 @@ export function usePlan() {
       }
       scheduled = setTimeout(() => {
         scheduled = null;
+        // §C: proactively warm the ID token on resume. The cached token is
+        // reused unless it is near expiry, so this adds no Identity-Toolkit
+        // pressure; any 401 later still forces a refresh once.
+        auth()
+          .currentUser?.getIdToken(false)
+          .catch(() => {});
         refreshPlan().catch((e) => {
           if (__DEV__) console.log('usePlan foreground refresh error:', e);
         });
@@ -167,5 +221,5 @@ export function usePlan() {
     };
   }, [refreshPlan]);
 
-  return { ...planInfo, loading, refreshPlan, refreshDeveloperAccess };
+  return { ...planInfo, loading, refreshFailed, refreshPlan, refreshDeveloperAccess };
 }
