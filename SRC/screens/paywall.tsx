@@ -21,11 +21,15 @@ import { trialDaysLeft } from "../components/TrialBanner";
 import DeveloperBadge from "../components/DeveloperBadge";
 import { colors } from "../theme";
 
-// Presentation metadata only (names, colors, feature copy). Prices, quotas
-// and tier names shown as numbers always come from /api/plans (golden rule 3).
+// Presentation metadata (names, colors, feature copy) plus offline fallback
+// prices. The backend catalog is the source of truth (golden rule 3): server
+// prices are used whenever /api/plans succeeds, and these values only fill in
+// when that call fails so the screen never blanks out to "—".
 const FALLBACK_PLANS = {
   pro: {
     name: "Pro",
+    monthlyPrice: 179,
+    yearlyPrice: 699,
     color: colors.primary,
     textColor: colors.text,
     cardBg: "#FFFFFF",
@@ -43,6 +47,8 @@ const FALLBACK_PLANS = {
   },
   ultimate: {
     name: "Ultimate",
+    monthlyPrice: 199,
+    yearlyPrice: 799,
     color: colors.onPrimary,
     textColor: colors.onPrimary,
     cardBg: colors.primary,
@@ -497,14 +503,19 @@ export default function PaywallScreen() {
             {Object.entries(FALLBACK_PLANS).map(([key, planItem]) => {
               if (key === "pro" && (activePlanKey === "pro" || activePlanKey === "ultimate")) return null;
               const tierKey = `${key}_${billingCycle}`;
-              // Prices are server values only — never a local constant.
+              // Server prices win; the offline fallbacks above are used only
+              // when /api/plans did not deliver them.
               const monthlyPrice = catalogPrices?.[`${key}_monthly`];
               const yearlyPrice = catalogPrices?.[`${key}_yearly`];
-              const shownPrice = billingCycle === "monthly" ? monthlyPrice : yearlyPrice;
+              const shownPrice =
+                (billingCycle === "monthly" ? monthlyPrice : yearlyPrice) ??
+                (billingCycle === "monthly" ? planItem.monthlyPrice : planItem.yearlyPrice);
               const savings =
                 monthlyPrice !== undefined && yearlyPrice !== undefined
                   ? Math.round(monthlyPrice * 12 - yearlyPrice)
-                  : null;
+                  : monthlyPrice === undefined && yearlyPrice === undefined
+                    ? Math.round(planItem.monthlyPrice * 12 - planItem.yearlyPrice)
+                    : null;
               const quota = catalogMeta?.[tierKey];
               const quotaLine = quota && quota.messageLimit > 0
                 ? `${quota.messageLimit} messages, refreshes every ${quota.refreshHours} ${quota.refreshHours === 1 ? "hour" : "hours"}`
@@ -537,7 +548,7 @@ export default function PaywallScreen() {
                         {planItem.name}
                       </Text>
                       <Text style={[styles.planPrice, planPriceColor]}>
-                        {shownPrice !== undefined ? `₹${shownPrice}` : "—"}
+                        ₹{shownPrice}
                         <Text style={styles.planPeriod}>
                           {billingCycle === "monthly" ? "/month" : "/year"}
                         </Text>

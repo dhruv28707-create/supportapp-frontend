@@ -21,24 +21,63 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * builds / Debug provider in debuggable builds on Android, DeviceCheck on
  * iOS. Every failure path is swallowed — App Check is not enforced
  * missing-token server-side yet, so the header is best-effort and must never
- * break a request. A FRESH token is generated per request so a later
- * APP_CHECK_CONSUME (single-use) rollout never rejects us.
+ * break a request. The whole activation + token fetch is therefore raced
+ * against a short timeout that resolves null, and a CACHED token is used
+ * (getToken(false)) so a provider that hangs (e.g. an unregistered Play
+ * Integrity / debug token) can never stall the actual network call.
  */
-let appCheckActivated = false;
+const APP_CHECK_TIMEOUT_MS = 3_000;
 
+let appCheckActivated = false;
+// Memoized activation, so a hanging or failing activate() is attempted once
+// instead of being re-started by every request.
+let appCheckActivation: Promise<void> | null = null;
+
+function activateAppCheckOnce(): Promise<void> {
+  if (!appCheckActivation) {
+    // The namespaced activate() takes a firebase-js-sdk compat string but
+    // ignores it and installs the platform defaults (PlayIntegrity /
+    // Debug on Android, DeviceCheck on iOS).
+    appCheckActivation = appCheck()
+      .activate('default', true)
+      .then(() => {
+        appCheckActivated = true;
+      });
+  }
+  return appCheckActivation;
+}
+
+async function fetchAppCheckToken(): Promise<string | null> {
+  if (!appCheckActivated) {
+    await activateAppCheckOnce();
+  }
+  const { token } = await appCheck().getToken(false);
+  return typeof token === 'string' && token.length > 0 ? token : null;
+}
+
+/**
+ * Best-effort App Check token: never throws and never waits longer than
+ * APP_CHECK_TIMEOUT_MS. On timeout or failure it resolves null and the caller
+ * simply omits the header.
+ */
 async function getAppCheckToken(): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), APP_CHECK_TIMEOUT_MS);
+  });
   try {
-    if (!appCheckActivated) {
-      // The namespaced activate() takes a firebase-js-sdk compat string but
-      // ignores it and installs the platform defaults (PlayIntegrity /
-      // Debug on Android, DeviceCheck on iOS).
-      await appCheck().activate('default', true);
-      appCheckActivated = true;
+    const token = await Promise.race([fetchAppCheckToken(), timeout]);
+    if (!token) {
+      // TEMPORARY diagnostic — remove once App Check is confirmed healthy.
+      console.warn('[AppCheck] token unavailable, continuing without it');
     }
-    const { token } = await appCheck().getToken(true);
-    return typeof token === 'string' && token.length > 0 ? token : null;
+    return token;
   } catch {
+    // TEMPORARY diagnostic — remove once App Check is confirmed healthy.
+    console.warn('[AppCheck] token unavailable, continuing without it');
     return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -59,6 +98,10 @@ export async function apiFetch(
       throw new ApiError(401, 'Not authenticated');
     }
 
+    // App Check resolves first, on its own short budget, so token latency can
+    // never start — let alone trip — the request timeout below.
+    const appCheckToken = await getAppCheckToken();
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -69,7 +112,6 @@ export async function apiFetch(
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
-      const appCheckToken = await getAppCheckToken();
       if (appCheckToken) {
         headers['x-firebase-appcheck'] = appCheckToken;
       }
@@ -127,8 +169,11 @@ export async function sendChatMessage(
 
   async function attempt(forceRefresh: boolean): Promise<ChatApiResult> {
     if (!user) throw new ApiError(401, 'Not authenticated');
-    const idToken = await user.getIdToken(forceRefresh);
+    // App Check resolves before the request lifecycle begins — and therefore
+    // before postStream's idle timer — so a slow or hung token can never stall
+    // the message.
     const appCheckToken = await getAppCheckToken();
+    const idToken = await user.getIdToken(forceRefresh);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
