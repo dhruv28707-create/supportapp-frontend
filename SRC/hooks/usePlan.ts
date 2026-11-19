@@ -59,6 +59,34 @@ const DEFAULT_PLAN: PlanInfo = {
   uiHints: null,
 };
 
+/** Max time to wait for one plan/usage request before giving up. */
+const REQUEST_TIMEOUT_MS = 15000;
+/** Auto-retries after a transient failure (network / timeout / 5xx). */
+const MAX_AUTO_RETRIES = 3;
+/** Backoff base: retries fire after 2s, 4s, 8s. */
+const RETRY_BASE_DELAY_MS = 2000;
+
+/**
+ * Rejects if the promise has not settled within `ms`. Without this, a request
+ * that never completes would leave the shared in-flight promise pending
+ * forever and block every later refresh.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('request timeout')), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 export function usePlan() {
   const [planInfo, setPlanInfo] = useState<PlanInfo>(DEFAULT_PLAN);
   const [loading, setLoading] = useState(true);
@@ -70,11 +98,26 @@ export function usePlan() {
   // Shared in-flight request: concurrent triggers (app start, chat turn,
   // resume, screen focus) must never stack parallel /api/user/usage reads.
   const inFlightRef = useRef<Promise<PlanInfo> | null>(null);
+  // Bounded auto-retry state for transient failures.
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isRetryCallRef = useRef(false);
 
   const refreshPlan = useCallback(async (): Promise<PlanInfo> => {
     if (inFlightRef.current) {
       return inFlightRef.current;
     }
+    // A fresh trigger (app start, resume, screen focus, manual retry) gets a
+    // new retry budget and cancels any retry that is still waiting.
+    if (!isRetryCallRef.current) {
+      retryCountRef.current = 0;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    }
+    isRetryCallRef.current = false;
+
     const task = doRefresh().finally(() => {
       if (inFlightRef.current === task) {
         inFlightRef.current = null;
@@ -83,6 +126,19 @@ export function usePlan() {
     inFlightRef.current = task;
     return task;
   }, []);
+
+  /** Schedules a limited number of retries with exponential backoff. */
+  function scheduleRetry() {
+    if (retryCountRef.current >= MAX_AUTO_RETRIES) return;
+    if (retryTimerRef.current) return; // one pending retry at a time
+    const delay = RETRY_BASE_DELAY_MS * 2 ** retryCountRef.current;
+    retryCountRef.current += 1;
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      isRetryCallRef.current = true;
+      refreshPlan().catch(() => {});
+    }, delay);
+  }
 
   async function doRefresh(): Promise<PlanInfo> {
     const user = auth().currentUser;
@@ -94,16 +150,22 @@ export function usePlan() {
     try {
       let data: any = null;
       try {
-        const res = await apiFetch(`/api/user/usage`);
-        data = await res.json();
+        const res = await withTimeout(apiFetch(`/api/user/usage`), REQUEST_TIMEOUT_MS);
         if (!res.ok) throw new Error(`usage ${res.status}`);
-      } catch {
-        const res = await apiFetch(`/api/user/plan`);
         data = await res.json();
+      } catch (e) {
+        // Always logged (not only in dev) so a release build can be diagnosed.
+        console.warn('[usePlan] /api/user/usage failed, falling back to /api/user/plan:', String(e));
+        const res = await withTimeout(apiFetch(`/api/user/plan`), REQUEST_TIMEOUT_MS);
         if (!res.ok) {
+          console.warn('[usePlan] /api/user/plan failed with status', res.status);
           setRefreshFailed(true);
+          // Only server-side / transient errors are worth retrying; a 4xx
+          // will not fix itself.
+          if (res.status >= 500) scheduleRetry();
           return planRef.current;
         }
+        data = await res.json();
       }
       {
         const isTrial = data.isTrial ?? false;
@@ -152,14 +214,16 @@ export function usePlan() {
         };
         setPlanInfo(fresh);
         setRefreshFailed(false);
+        retryCountRef.current = 0; // success resets the retry budget
         return fresh;
       }
     } catch (e) {
-      // A 500/transient failure keeps the last-known server state visible;
-      // the caller can surface a subtle "refreshing…" affordance. Never
-      // throw plan-fetch errors at the user.
-      if (__DEV__) console.log('usePlan fetch error:', e);
+      // A network error, timeout or transient failure keeps the last-known
+      // server state visible and schedules a bounded retry. Never throw
+      // plan-fetch errors at the user.
+      console.warn('[usePlan] plan fetch error:', String(e));
       setRefreshFailed(true);
+      scheduleRetry();
       return planRef.current;
     } finally {
       setLoading(false);
@@ -177,7 +241,7 @@ export function usePlan() {
       try {
         await user.getIdToken(true);
       } catch (e) {
-        if (__DEV__) console.log('usePlan developer token refresh error:', e);
+        console.warn('[usePlan] developer token refresh error:', String(e));
       }
     }
     return refreshPlan();
@@ -189,6 +253,16 @@ export function usePlan() {
     });
     return unsubscribe;
   }, [refreshPlan]);
+
+  // Cancel any pending retry when the component using this hook unmounts.
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let scheduled: ReturnType<typeof setTimeout> | null = null;
@@ -208,7 +282,7 @@ export function usePlan() {
           .currentUser?.getIdToken(false)
           .catch(() => {});
         refreshPlan().catch((e) => {
-          if (__DEV__) console.log('usePlan foreground refresh error:', e);
+          console.warn('[usePlan] foreground refresh error:', String(e));
         });
       }, 1500);
     });
