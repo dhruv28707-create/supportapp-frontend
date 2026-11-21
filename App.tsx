@@ -7,6 +7,7 @@ import { TokenProvider } from "./SRC/context/TokenContext";
 import SplashScreen from "./SRC/screens/SplashScreen";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from "./SRC/constants";
+import PlanDebug from "./SRC/components/PlanDebug"
 
 GoogleSignin.configure({
   webClientId: GOOGLE_WEB_CLIENT_ID,
@@ -71,6 +72,7 @@ export default function App() {
           <NavigationContainer>
             <AppNavigator />
           </NavigationContainer>
+          <PlanDebug />
         </TokenProvider>
       </SafeAreaProvider>
     </ErrorBoundary>
