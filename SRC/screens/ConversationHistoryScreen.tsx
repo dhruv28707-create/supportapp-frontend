@@ -15,6 +15,7 @@ import type { RootStackParamList } from "../navigation/AppNavigator";
 import firestore from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
 import { colors } from "../theme";
+import { isRetiredPersonality } from "../constants";
 
 type HistoryNavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -45,6 +46,9 @@ const personalityColor: Record<string, string> = {
   Stranger: "#78909C",
 };
 
+// Retired personas (Friend, Husband, Wife, Boyfriend, Girlfriend) keep their
+// emoji/color entries above on purpose: old saved chats still render with them.
+// The chat screen opens those chats read-only.
 const normalizeStoredPersonality = (value: unknown): string => {
   if (typeof value !== "string" || !value) return "Father";
   if (value === "BestFriend") return "Best Friend";
@@ -63,8 +67,8 @@ const normalizeStoredPersonality = (value: unknown): string => {
 
 // All personalities for filter pills
 const ALL_FILTERS = [
-  "All", "Father", "Mother", "Brother", "Sister", "Friend", "Best Friend",
-  "Mentor", "Guide", "Husband", "Wife", "Boyfriend", "Girlfriend",
+  "All", "Father", "Mother", "Brother", "Sister", "Best Friend",
+  "Mentor", "Guide",
   "Guide_islamic", "Guide_hindu", "Guide_christian", "Guide_buddhist",
   "Guide_jewish", "Guide_spiritual", "Guide_secular",
 ];
@@ -78,6 +82,7 @@ const displayLabel = (personality: string) => {
     if (!sub) return "Guide";
     return `Guide · ${sub.charAt(0).toUpperCase() + sub.slice(1)}`;
   }
+  if (isRetiredPersonality(clean)) return `${clean} (retired)`;
   return clean;
 };
 

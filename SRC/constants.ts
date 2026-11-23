@@ -41,18 +41,41 @@ export const VALID_PERSONALITIES = [
   'Mother',
   'Sister',
   'Brother',
-  'Friend',
   'Best Friend',
   'Mentor',
   'Guide',
-  'Husband',
-  'Wife',
-  'Boyfriend',
-  'Girlfriend',
   'Stranger',
 ] as const;
 
 export type Personality = typeof VALID_PERSONALITIES[number];
+
+/**
+ * Personas the backend no longer accepts (it answers 400 for them). Old
+ * saved conversations may still carry these names, so the app keeps them
+ * readable but never sends them to the server. 'BF' / 'GF' are legacy
+ * shorthands that older builds stored.
+ */
+const RETIRED_PERSONALITY_LABELS: Record<string, string> = {
+  Friend: 'Friend',
+  Husband: 'Husband',
+  Wife: 'Wife',
+  Boyfriend: 'Boyfriend',
+  Girlfriend: 'Girlfriend',
+  BF: 'Boyfriend',
+  GF: 'Girlfriend',
+};
+
+/** Display name of a retired persona, or null if `value` is not retired. */
+export function getRetiredPersonalityLabel(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return Object.prototype.hasOwnProperty.call(RETIRED_PERSONALITY_LABELS, value)
+    ? RETIRED_PERSONALITY_LABELS[value]
+    : null;
+}
+
+export function isRetiredPersonality(value: unknown): boolean {
+  return getRetiredPersonalityLabel(value) !== null;
+}
 
 export const STRANGER_PERSONALITY = 'Stranger' as const;
 
@@ -60,13 +83,12 @@ export function isStrangerPersonality(personality: string | null | undefined): b
   return personality === STRANGER_PERSONALITY;
 }
 
-/** Free on every plan, no history kept. */
+/** Free personas. Must match FREE_PERSONALITIES in the backend constants. */
 export const FREE_PERSONALITIES: readonly string[] = [
   'Father',
   'Mother',
   'Brother',
   'Sister',
-  'Stranger',
 ];
 
 export const VALID_RELIGIONS = [
@@ -83,8 +105,8 @@ export type ReligionSubType = typeof VALID_RELIGIONS[number];
 
 export const TIER_UNLOCKS: Record<PlanKey, string[]> = {
   free: ['Father', 'Mother', 'Brother', 'Sister', 'Stranger'],
-  pro: ['Father', 'Mother', 'Brother', 'Sister', 'Friend', 'Best Friend', 'Mentor', 'Guide', 'Stranger'],
-  ultimate: ['Father', 'Mother', 'Brother', 'Sister', 'Friend', 'Best Friend', 'Mentor', 'Guide', 'Boyfriend', 'Girlfriend', 'Husband', 'Wife', 'Stranger'],
+  pro: ['Father', 'Mother', 'Brother', 'Sister', 'Best Friend', 'Mentor',],
+  ultimate: ['Father', 'Mother', 'Brother', 'Sister', 'Best Friend', 'Mentor', 'Guide', 'Stranger'],
 };
 
 export const PLAN_COLORS: Record<string, { bg: string; text: string; border: string }> = {

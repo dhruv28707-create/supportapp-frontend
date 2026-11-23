@@ -18,7 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import firestore from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
 import { useToken } from "../context/TokenContext";
-import { CRISIS_HELPLINES, isStrangerPersonality, VALID_PERSONALITIES, VALID_RELIGIONS } from "../constants";
+import { CRISIS_HELPLINES, getRetiredPersonalityLabel, isStrangerPersonality, VALID_PERSONALITIES, VALID_RELIGIONS } from "../constants";
 import { sendChatMessage } from "../api/client";
 import { useCountdown, formatCountdown, useOnlineStatus } from "../hooks/useCountdown";
 import { colors } from "../theme";
@@ -84,18 +84,6 @@ const PERSONALITY_THEME: Record<string, {
     inputBorder: "#FF69B4",
     sendBtn: "#C71585",
     typingColor: "#AD1457",
-  },
-  Friend: {
-    headerBg: "#FF9F80",
-    headerText: "#5C1A00",
-    headerSub: "#FFF0E6",
-    safeBg: "#FF9F80",
-    aiBubbleBg: "#FFF0E6",
-    aiBubbleText: "#5C1A00",
-    avatarBg: "#FBCEB1",
-    inputBorder: "#FF9F80",
-    sendBtn: "#E2703A",
-    typingColor: "#B54A1A",
   },
   "Best Friend": {
     headerBg: "#FFAB8F",
@@ -217,54 +205,6 @@ const PERSONALITY_THEME: Record<string, {
     sendBtn: "#757575",
     typingColor: "#616161",
   },
-  Boyfriend: {
-    headerBg: "#5B9BD5",
-    headerText: "#FFFFFF",
-    headerSub: "#C9E2F7",
-    safeBg: "#5B9BD5",
-    aiBubbleBg: "#E8F4FF",
-    aiBubbleText: "#002244",
-    avatarBg: "#89C4F4",
-    inputBorder: "#5B9BD5",
-    sendBtn: "#2E75B6",
-    typingColor: "#3A6EA5",
-  },
-  Girlfriend: {
-    headerBg: "#E91E8C",
-    headerText: "#FFFFFF",
-    headerSub: "#FFE8F4",
-    safeBg: "#E91E8C",
-    aiBubbleBg: "#FFE8F4",
-    aiBubbleText: "#7A0045",
-    avatarBg: "#F48CB8",
-    inputBorder: "#E91E8C",
-    sendBtn: "#C2185B",
-    typingColor: "#AD1457",
-  },
-  Husband: {
-    headerBg: "#5C6BC0",
-    headerText: "#FFFFFF",
-    headerSub: "#E8EAF6",
-    safeBg: "#5C6BC0",
-    aiBubbleBg: "#E8EAF6",
-    aiBubbleText: "#1A237E",
-    avatarBg: "#9FA8DA",
-    inputBorder: "#5C6BC0",
-    sendBtn: "#3949AB",
-    typingColor: "#3F51B5",
-  },
-  Wife: {
-    headerBg: "#E91E63",
-    headerText: "#FFFFFF",
-    headerSub: "#FCE4EC",
-    safeBg: "#E91E63",
-    aiBubbleBg: "#FCE4EC",
-    aiBubbleText: "#880E4F",
-    avatarBg: "#F48FB1",
-    inputBorder: "#E91E63",
-    sendBtn: "#C2185B",
-    typingColor: "#AD1457",
-  },
   Stranger: {
     headerBg: "#455A64",
     headerText: "#FFFFFF",
@@ -292,12 +232,15 @@ const DEFAULT_THEME = {
   typingColor: colors.textMuted,
 };
 
+// Shown instead of a welcome when an old chat belongs to a retired persona.
+const RETIRED_CHAT_NOTICE =
+  "This persona is no longer available, so this chat is read-only. Start a new chat with another persona to keep talking.";
+
 const welcomeMessages: Record<string, string> = {
   Father: "Beta, I'm here. Tell me what's on your mind.",
   Mother: "Mera bacha, I'm here. Tell me everything, I'm listening.",
   Brother: "Aye yaar, kya hua? Bata mujhe.",
   Sister: "Arrey, kya chal raha hai? Talk to me!",
-  Friend: "Hey! What's going on? I'm all ears.",
   "Best Friend": "Hey, I'm here. What's going on?",
   Mentor: "I'm here. Tell me what's on your mind — let's figure it out together.",
   Guide: "I am here to guide you. What is on your mind?",
@@ -308,10 +251,6 @@ const welcomeMessages: Record<string, string> = {
   Guide_jewish: "Shalom. What is on your mind today?",
   Guide_spiritual: "Welcome. Let us find peace and understanding together.",
   Guide_secular: "Welcome. I'm here to listen and help you process your thoughts.",
-  Boyfriend: "Hey babe, I'm here. What's going on?",
-  Girlfriend: "Hey baby, I'm here. Talk to me, what's wrong?",
-  Husband: "I'm here jaan. Tell me everything, what's on your mind?",
-  Wife: "I'm here sweetheart. Talk to me, what's going on?",
   Stranger: "Hey — I'm just a stranger passing by. What's on your mind? Nothing you say here is kept.",
 };
 
@@ -320,7 +259,6 @@ const personalityEmoji: Record<string, string> = {
   Mother: "👩",
   Brother: "👦",
   Sister: "👧",
-  Friend: "🤝",
   "Best Friend": "💯",
   Mentor: "🎓",
   Guide: "🙏",
@@ -331,10 +269,6 @@ const personalityEmoji: Record<string, string> = {
   Guide_jewish: "✡️",
   Guide_spiritual: "✨",
   Guide_secular: "🌿",
-  Boyfriend: "💙",
-  Girlfriend: "🩷",
-  Husband: "💍",
-  Wife: "👰",
   Stranger: "🎭",
 };
 
@@ -377,7 +311,7 @@ const normalizePersonality = (value: unknown): string => {
   if (typeof value === "string" && (VALID_PERSONALITIES as readonly string[]).includes(value)) {
     return value;
   }
-  return "Friend";
+  return "Best Friend";
 };
 
 const normalizeReligion = (value: unknown): string | undefined => {
@@ -468,13 +402,17 @@ export default function ChatScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<ChatNavProp>();
 
-  const rawPersonalityParam = route.params?.personality ?? "Friend";
+  const rawPersonalityParam = route.params?.personality ?? "Best Friend";
   const rawReligionSubTypeParam = route.params?.religionSubType;
   const initialConversationId = route.params?.conversationId;
 
   const isLegacyGuide = typeof rawPersonalityParam === "string" && rawPersonalityParam.startsWith("Guide_");
   const basePersonality = isLegacyGuide ? "Guide" : rawPersonalityParam;
   const personality = normalizePersonality(basePersonality);
+  // Retired personas (Friend, Husband, Wife, Boyfriend, Girlfriend) are gone
+  // from the backend. Their old chats open read-only and never hit the API.
+  const retiredLabel = getRetiredPersonalityLabel(basePersonality);
+  const isRetiredChat = retiredLabel !== null;
   const religionSubType = isStrangerPersonality(personality)
     ? undefined
     : isLegacyGuide
@@ -537,12 +475,18 @@ export default function ChatScreen() {
     }, [refreshPlan])
   );
 
-  const displayName = isStranger
+  const displayName = isRetiredChat
+    ? `${retiredLabel} (retired)`
+    : isStranger
     ? "Anonymous stranger"
     : personality === "Guide" && religionSubType
       ? `Guide · ${religionSubType.charAt(0).toUpperCase() + religionSubType.slice(1)}`
       : personality;
-  const headerSub = isStranger ? "No history is kept" : "Here for you";
+  const headerSub = isRetiredChat
+    ? "Read-only · persona retired"
+    : isStranger
+      ? "No history is kept"
+      : "Here for you";
 
   const buildConversationTitle = (text: string) => {
     const cleanText = text.replace(/\s+/g, " ").trim();
@@ -584,7 +528,9 @@ export default function ChatScreen() {
     const welcomeKey = themeKey;
     const welcome: Message = {
       id: makeMessageId(),
-      text: welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages.Friend,
+      text: isRetiredChat
+        ? RETIRED_CHAT_NOTICE
+        : welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages["Best Friend"],
       sender: "ai",
       personality,
       religionSubType,
@@ -593,14 +539,16 @@ export default function ChatScreen() {
     setMessages([welcome]);
     // Stranger never reopens a saved conversation — always start fresh.
     setConversationId(isStranger ? undefined : initialConversationId);
-  }, [initialConversationId, personality, themeKey, religionSubType, isStranger]);
+  }, [initialConversationId, personality, themeKey, religionSubType, isStranger, isRetiredChat]);
 
   useEffect(() => {
     const uid = auth().currentUser?.uid;
     const welcomeKey = themeKey;
     const welcome: Message = {
       id: makeMessageId(),
-      text: welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages.Friend,
+      text: isRetiredChat
+        ? RETIRED_CHAT_NOTICE
+        : welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages["Best Friend"],
       sender: "ai",
       personality,
       religionSubType,
@@ -652,7 +600,7 @@ export default function ChatScreen() {
       clearTimeout(timer);
       unsubscribeHistory?.();
     };
-  }, [conversationId, personality, themeKey, religionSubType, isStranger]);
+  }, [conversationId, personality, themeKey, religionSubType, isStranger, isRetiredChat]);
 
   const crisisPhrases = [
     "want to die", "kill myself", "end my life", "suicide",
@@ -704,6 +652,8 @@ export default function ChatScreen() {
 
   const executeSend = async (messageText: string, opts?: { retry?: boolean; skipReligion?: boolean }) => {
     if (!messageText.trim()) return;
+    // Retired-persona chats are read-only: never send a removed persona to the API.
+    if (isRetiredChat) return;
 
     // Serialize: ONE in-flight chat request per user, ever. Parallel sends
     // only burn the 30/5min abuse budget and stack "quota exhausted" toasts.
@@ -1090,6 +1040,7 @@ export default function ChatScreen() {
   const cooldownBannerActive = !quotaExempt && limitSignal.hit && limitSignal.kind === "cooldown";
 
   const isSendDisabled =
+    isRetiredChat ||
     loading ||
     !isOnline ||
     isChatInFlight() ||
@@ -1102,6 +1053,7 @@ export default function ChatScreen() {
   };
 
   const handleSend = () => {
+    if (isRetiredChat) return;
     if (!isOnline) {
       Alert.alert("You're offline", "Please check your connection and try again.");
       return;
@@ -1363,6 +1315,17 @@ export default function ChatScreen() {
           </View>
         ) : null}
 
+        {isRetiredChat && (
+          <View style={styles.retiredNotice}>
+            <Text style={styles.retiredNoticeText}>
+              {retiredLabel} is no longer available, so this chat is read-only.
+            </Text>
+            <TouchableOpacity onPress={() => navigation.navigate("Lobby")}>
+              <Text style={[styles.retiredNoticeLink, { color: theme.sendBtn }]}>Start a new chat</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {composerError && (
           <Text style={styles.composerError}>{composerError}</Text>
         )}
@@ -1371,7 +1334,7 @@ export default function ChatScreen() {
           <TextInput
             ref={inputRef}
             style={[styles.input, { borderColor: theme.inputBorder }]}
-            placeholder="What's on your mind?"
+            placeholder={isRetiredChat ? "This chat is read-only" : "What's on your mind?"}
             placeholderTextColor={colors.textMuted}
             value={input}
             onChangeText={(t) => {
@@ -1380,7 +1343,7 @@ export default function ChatScreen() {
             }}
             onSubmitEditing={handleSend}
             returnKeyType="send"
-            editable={!loading}
+            editable={!loading && !isRetiredChat}
             multiline={false}
             maxLength={MAX_MESSAGE_LENGTH}
           />
@@ -1465,6 +1428,17 @@ const styles = StyleSheet.create({
   userText: { color: colors.onPrimary },
   typingContainer: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 6 },
   typingText: { marginLeft: 8, fontSize: 13, fontStyle: "italic" },
+  retiredNotice: {
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: "#FFF8E1",
+    alignItems: "center",
+  },
+  retiredNoticeText: { fontSize: 13, color: "#5D4037", textAlign: "center" },
+  retiredNoticeLink: { fontSize: 13, fontWeight: "700", marginTop: 6 },
   composerError: {
     color: colors.danger,
     fontSize: 12,

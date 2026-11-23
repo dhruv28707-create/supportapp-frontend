@@ -38,8 +38,7 @@ const FALLBACK_PLANS = {
     btnText: colors.onPrimary,
     badge: "POPULAR",
     features: [
-      "8 personalities unlocked",
-      "Friend & Best Friend",
+      "All 8 personalities unlocked",
       "Mentor access",
       "All Guide variants",
       "Priority responses",
@@ -58,8 +57,7 @@ const FALLBACK_PLANS = {
     badge: "BEST",
     features: [
       "All Pro features",
-      "Boyfriend & Girlfriend",
-      "Husband & Wife",
+      "Highest message allowance",
       "Early access to new features",
     ],
   },
@@ -439,7 +437,7 @@ export default function PaywallScreen() {
           <View style={styles.trialCta}>
             <Text style={styles.trialCtaTitle}>Try Ultimate free for 5 days</Text>
             <Text style={styles.trialCtaSub}>
-              All 13 personas and 200 messages every 2 hours. No payment required.
+              All 8 personas and 200 messages every 2 hours. No payment required.
             </Text>
             {trialError && <Text style={styles.trialError}>{trialError}</Text>}
             <TouchableOpacity

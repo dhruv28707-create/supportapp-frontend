@@ -59,13 +59,6 @@ const PERSONALITY_COLORS: Record<string, {
     labelColor: "#7A0020",
     selectedLabelColor: "#5C001A",
   },
-  Friend: {
-    bg: "#FFF0E6",
-    border: "#FF9F80",
-    selectedBg: "#FBCEB1",
-    labelColor: "#7A2200",
-    selectedLabelColor: "#5C1A00",
-  },
   "Best Friend": {
     bg: "#FFF3EC",
     border: "#FFAB8F",
@@ -86,34 +79,6 @@ const PERSONALITY_COLORS: Record<string, {
     selectedBg: "#EDE0FF",
     labelColor: "#4A007A",
     selectedLabelColor: "#2A0050",
-  },
-  Boyfriend: {
-    bg: "#E8F4FF",
-    border: "#5B9BD5",
-    selectedBg: "#C9E2F7",
-    labelColor: "#003366",
-    selectedLabelColor: "#002244",
-  },
-  Girlfriend: {
-    bg: "#FFE8F4",
-    border: "#E91E8C",
-    selectedBg: "#FFC5E5",
-    labelColor: "#1A237E",
-    selectedLabelColor: "#0D1257",
-  },
-  Husband: {
-    bg: "#E8EAF6",
-    border: "#5C68C0",
-    selectedBg: "#C5CAE9",
-    labelColor: "#1A237E",
-    selectedLabelColor: "#0D1257",
-  },
-  Wife: {
-    bg: "#FCE4EC",
-    border: "#E91E63",
-    selectedBg: "#F8B8D0",
-    labelColor: "#880E4F",
-    selectedLabelColor: "#6A0033",
   },
   Stranger: {
     bg: "#ECEFF1",
@@ -152,14 +117,9 @@ const personalities = [
   { id: "Mother",      emoji: "👩", label: "Mother"      },
   { id: "Brother",     emoji: "👦", label: "Brother"     },
   { id: "Sister",      emoji: "👧", label: "Sister"      },
-  { id: "Friend",      emoji: "🤝", label: "Friend"      },
   { id: "Best Friend", emoji: "💯", label: "Best Friend" },
   { id: "Mentor",      emoji: "🎓", label: "Mentor"      },
   { id: "Guide",       emoji: "🙏", label: "Guide"       },
-  { id: "Husband",     emoji: "💍", label: "Husband"     },
-  { id: "Wife",        emoji: "👰", label: "Wife"        },
-  { id: "Boyfriend",   emoji: "💙", label: "Boyfriend"   },
-  { id: "Girlfriend",  emoji: "🩷", label: "Girlfriend"  },
   { id: "Stranger",    emoji: "🎭", label: "Stranger" },
 ];
 
@@ -180,7 +140,7 @@ export default function LobbyScreen() {
   const [showReligionModal, setShowReligionModal] = useState(false);
   const [selectedReligion, setSelectedReligion] = useState("spiritual");
 
-  // All 13 personas unlock whenever the server plan is paid, the account is a
+  // All 8 personas unlock whenever the server plan is paid, the account is a
   // server-granted developer, or the backend returns unlimited quota.
   // Locks are never decided from purchase history or cached client flags.
   const serverPlanIsPaid = typeof plan === 'string' && plan !== '' && plan !== 'free';
