@@ -15,6 +15,7 @@ import type { RootStackParamList } from "../navigation/AppNavigator";
 import { useToken } from "../context/TokenContext";
 import {
   TIER_UNLOCKS,
+  getRequiredPlan,
   isStrangerPersonality,
   VALID_PERSONALITIES,
   VALID_RELIGIONS,
@@ -140,26 +141,30 @@ export default function LobbyScreen() {
   const [showReligionModal, setShowReligionModal] = useState(false);
   const [selectedReligion, setSelectedReligion] = useState("spiritual");
 
-  // All 8 personas unlock whenever the server plan is paid, the account is a
-  // server-granted developer, or the backend returns unlimited quota.
-  // Locks are never decided from purchase history or cached client flags.
-  const serverPlanIsPaid = typeof plan === 'string' && plan !== '' && plan !== 'free';
+  // Which personas are unlocked depends on the SERVER plan: free = family,
+  // Pro adds Best Friend + Mentor, Ultimate adds Guide + Stranger. Server-
+  // granted developers and unlimited accounts get all of them. Locks are
+  // never decided from purchase history or cached client flags.
+  const tierList = (TIER_UNLOCKS as Record<string, readonly string[]>)[String(plan)];
   const unlockedPersonalities: readonly string[] =
-    serverPlanIsPaid || isDeveloper || unlimited
+    isDeveloper || unlimited
       ? VALID_PERSONALITIES
-      : TIER_UNLOCKS.free;
+      : tierList ?? TIER_UNLOCKS.free;
+
+  const planNeededLabel = (personaId: string) =>
+    getRequiredPlan(personaId) === 'ultimate' ? 'Ultimate' : 'Pro';
 
   useEffect(() => {
-    if (!isStrangerPersonality(selected) && !unlockedPersonalities.includes(selected)) {
+    if (!unlockedPersonalities.includes(selected)) {
       setSelected("Father");
     }
   }, [unlockedPersonalities, selected]);
 
   const handlePersonalitySelect = (id: string) => {
-    if (!isStrangerPersonality(id) && !unlockedPersonalities.includes(id)) {
+    if (!unlockedPersonalities.includes(id)) {
       Alert.alert(
         "Locked 🔒",
-        "This personality is not available on your current plan. Upgrade to unlock!",
+        `${id} needs the ${planNeededLabel(id)} plan. Upgrade to unlock!`,
         [
           { text: "Maybe Later", style: "cancel" },
           { text: "Upgrade ✨", onPress: ()=> navigation.navigate("Paywall") },
@@ -179,10 +184,10 @@ export default function LobbyScreen() {
   };
 
   const handleChat = () => {
-    if (!isStrangerPersonality(selected) && !unlockedPersonalities.includes(selected)) {
+    if (!unlockedPersonalities.includes(selected)) {
       Alert.alert(
         "Locked 🔒",
-        "This personality is not available on your current plan. Upgrade to unlock!",
+        `${selected} needs the ${planNeededLabel(selected)} plan. Upgrade to unlock!`,
         [
           { text: "Maybe Later", style: "cancel" },
           { text: "Upgrade ✨", onPress: () => navigation.navigate("Paywall") },
@@ -245,7 +250,7 @@ export default function LobbyScreen() {
 
           {personalities.map((p) => {
             const isSelected = selected === p.id;
-            const isLocked = !isStrangerPersonality(p.id) && !unlockedPersonalities.includes(p.id);
+            const isLocked = !unlockedPersonalities.includes(p.id);
             const cardColors = getCardColors(p.id, isSelected);
 
             const cardStyle = { backgroundColor: cardColors.bg, borderColor: cardColors.border };
@@ -266,11 +271,6 @@ export default function LobbyScreen() {
                 {isLocked && (
                   <View style={styles.proBadge}>
                     <Text style={styles.proText}>🔒</Text>
-                  </View>
-                )}
-                {isStranger && (
-                  <View style={styles.freeBadge}>
-                    <Text style={styles.freeBadgeText}>FREE</Text>
                   </View>
                 )}
                 <Text style={styles.cardEmoji}>{p.emoji}</Text>

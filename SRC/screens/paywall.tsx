@@ -38,9 +38,9 @@ const FALLBACK_PLANS = {
     btnText: colors.onPrimary,
     badge: "POPULAR",
     features: [
-      "All 8 personalities unlocked",
-      "Mentor access",
-      "All Guide variants",
+      "Everything in Free",
+      "Best Friend persona",
+      "Mentor persona",
       "Priority responses",
     ],
   },
@@ -57,6 +57,8 @@ const FALLBACK_PLANS = {
     badge: "BEST",
     features: [
       "All Pro features",
+      "Guide (all faith variants)",
+      "Stranger (anonymous chat)",
       "Highest message allowance",
       "Early access to new features",
     ],

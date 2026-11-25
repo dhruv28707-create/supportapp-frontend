@@ -18,7 +18,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import firestore from "@react-native-firebase/firestore";
 import auth from "@react-native-firebase/auth";
 import { useToken } from "../context/TokenContext";
-import { CRISIS_HELPLINES, getRetiredPersonalityLabel, isStrangerPersonality, VALID_PERSONALITIES, VALID_RELIGIONS } from "../constants";
+import { CRISIS_HELPLINES, FALLBACK_PERSONALITY, getRetiredPersonalityLabel, isStrangerPersonality, VALID_PERSONALITIES, VALID_RELIGIONS } from "../constants";
 import { sendChatMessage } from "../api/client";
 import { useCountdown, formatCountdown, useOnlineStatus } from "../hooks/useCountdown";
 import { colors } from "../theme";
@@ -311,7 +311,7 @@ const normalizePersonality = (value: unknown): string => {
   if (typeof value === "string" && (VALID_PERSONALITIES as readonly string[]).includes(value)) {
     return value;
   }
-  return "Best Friend";
+  return FALLBACK_PERSONALITY;
 };
 
 const normalizeReligion = (value: unknown): string | undefined => {
@@ -402,7 +402,7 @@ export default function ChatScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<ChatNavProp>();
 
-  const rawPersonalityParam = route.params?.personality ?? "Best Friend";
+  const rawPersonalityParam = route.params?.personality ?? FALLBACK_PERSONALITY;
   const rawReligionSubTypeParam = route.params?.religionSubType;
   const initialConversationId = route.params?.conversationId;
 
@@ -530,7 +530,7 @@ export default function ChatScreen() {
       id: makeMessageId(),
       text: isRetiredChat
         ? RETIRED_CHAT_NOTICE
-        : welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages["Best Friend"],
+        : welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages[FALLBACK_PERSONALITY],
       sender: "ai",
       personality,
       religionSubType,
@@ -548,7 +548,7 @@ export default function ChatScreen() {
       id: makeMessageId(),
       text: isRetiredChat
         ? RETIRED_CHAT_NOTICE
-        : welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages["Best Friend"],
+        : welcomeMessages[welcomeKey] ?? welcomeMessages[personality] ?? welcomeMessages[FALLBACK_PERSONALITY],
       sender: "ai",
       personality,
       religionSubType,

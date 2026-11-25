@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import AppNavigator from "./SRC/navigation/AppNavigator";
 import { TokenProvider } from "./SRC/context/TokenContext";
 import SplashScreen from "./SRC/screens/SplashScreen";
+import UpdatePrompt from "./SRC/components/UpdatePrompt";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import { GOOGLE_IOS_CLIENT_ID, GOOGLE_WEB_CLIENT_ID } from "./SRC/constants";
 
@@ -67,6 +68,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <SafeAreaProvider>
+        <UpdatePrompt />
         <TokenProvider>
           <NavigationContainer>
             <AppNavigator />

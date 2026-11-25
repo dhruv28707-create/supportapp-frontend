@@ -104,10 +104,20 @@ export const VALID_RELIGIONS = [
 export type ReligionSubType = typeof VALID_RELIGIONS[number];
 
 export const TIER_UNLOCKS: Record<PlanKey, string[]> = {
-  free: ['Father', 'Mother', 'Brother', 'Sister', 'Stranger'],
-  pro: ['Father', 'Mother', 'Brother', 'Sister', 'Best Friend', 'Mentor',],
+  free: ['Father', 'Mother', 'Brother', 'Sister'],
+  pro: ['Father', 'Mother', 'Brother', 'Sister', 'Best Friend', 'Mentor'],
   ultimate: ['Father', 'Mother', 'Brother', 'Sister', 'Best Friend', 'Mentor', 'Guide', 'Stranger'],
 };
+
+/** Lowest plan that unlocks `personality`. Mirrors PERSONALITY_MIN_PLAN on the backend. */
+export function getRequiredPlan(personality: string): 'free' | 'pro' | 'ultimate' {
+  if (TIER_UNLOCKS.free.includes(personality)) return 'free';
+  if (TIER_UNLOCKS.pro.includes(personality)) return 'pro';
+  return 'ultimate';
+}
+
+/** Persona shown whenever a requested one is missing or unknown. Free on every plan. */
+export const FALLBACK_PERSONALITY = 'Father';
 
 export const PLAN_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   free: { bg: '#F0DCC8', text: '#7A4A1A', border: '#C8702A' },
